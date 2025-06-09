@@ -13,35 +13,27 @@
 // Apparently according to POSIX, stderr is supposed to be open for both
 // reading and writing...
 //
-//go:generate npm install
 package main
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
-	"github.com/buildkite/terminal-to-html/v3"
+	"fmt"
 	"github.com/creack/pty"
-	"github.com/evanw/esbuild/pkg/api"
+	"github.com/reeflective/readline"
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"path"
-	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 )
 
 var (
-	host  = flag.String("host", "localhost", "Hostname at which to run the server")
-	port  = flag.Int("port", 3000, "Port at which to run the server over HTTP")
-	gosh  = flag.Bool("gosh", false, "Use the sh package instead of bash")
-	oil   = flag.Bool("oil", false, "Use oil instead of bash")
 	fifo  = flag.Bool("fifo", true, "Use named fifo instead of anonymous pipe")
 	debug = flag.Bool("debug", false, "Watch and live reload typescript")
-	build = flag.Bool("buildonly", false, "build the typescript and exit")
 )
 
 var shell Shell
@@ -70,7 +62,7 @@ type CompletionResult struct {
 
 type Shell interface {
 	StdIO(*os.File, *os.File, *os.File) error
-	Run(context.Context, io.Reader) error
+	Run(context.Context, string) error
 	Complete(context.Context, CompletionReq) (*CompletionResult, error)
 	Dir() string
 }
@@ -78,67 +70,68 @@ type Shell interface {
 type CommandOut struct {
 	Dir                  string
 	Stdout, Stderr       string
-	RawStdout            string
 	Err                  error
 }
 
+var prompt string
+
 func main() {
 	flag.Parse()
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	//log.SetFlags(log.LstdFlags | log.Lshortfile)
 
+	var command string
 	var err error
+	var out, pwd CommandOut
 
-	// Bundle javascript
-	buildCtx, err := api.Context(api.BuildOptions{
-		EntryPoints: []string{"typescript/shell.ts"},
-		Bundle:      true,
-		Outfile:     "web/assets/shell.js",
-		LogLevel:    api.LogLevelInfo,
-		//Plugins:     []api.Plugin{inlineImages},
-		Sourcemap: api.SourceMapInline,
-		Write:     true,
-		Loader: map[string]api.Loader{
-			".png": api.LoaderDataURL,
-		},
+	shell, _ = NewFANOSShell()
+	rl := readline.NewShell()
+	rl.Prompt.Primary(func() string {
+		return prompt
 	})
-	// build a first time so even -debug -build works
-	result := buildCtx.Rebuild()
-	if len(result.Errors) > 0 {
-		log.Fatal("Bundler has errors", result.Errors)
-	}
-	if *debug {
-		err := buildCtx.Watch(api.WatchOptions{})
+	// TODOS:
+	// defaults for inputrc from console
+	// handle interrupts like EOF!
+	// put output stderr in the hints?
+	// Autocomplete
+	// Highlight bash -> pygments (if `osh...?`
+	// LONGTERM:
+	// go back to recent command/cycle through/search, etc.
+	for {
+		// Update prompt
+		pwd, err = Run("pwd | sed \"s|$[ENV.HOME]|~|\"")
 		if err != nil {
-			log.Fatal("Can't watch typescript", err)
+			log.Println(err)
 		}
-	}
-	if *build {
-		log.Println("Build successful")
-		os.Exit(0)
+		prompt = strings.TrimSuffix(pwd.Stdout, "\n\n") + " $ "
+
+		// readline
+		command, err = rl.Readline()
+		if err != nil {
+			log.Println(err)
+		}
+		if command == "" {
+			continue
+		}
+
+		// FANOS
+		out, err = Run(command)
+		if err != nil {
+			log.Println(err)
+		}
+
+		fmt.Println(out.Stdout)
+		//_, err = rl.Printf(out.Stdout)
+		//if err != nil {
+		//	log.Println(err)
+		//}
 	}
 
-	if *gosh {
-		shell, err = NewGoShell()
-	} else if *oil {
-		shell, err = NewFANOSShell()
-	} else {
-		shell, err = NewBashShell()
-	}
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	http.HandleFunc("/run", HandleRun)
-	http.HandleFunc("/complete", HandleComplete)
-	http.HandleFunc("/cancel", HandleCancel)
-	http.Handle("/", http.FileServer(http.Dir("./web")))
-	log.Fatal(http.ListenAndServe(*host+":"+strconv.Itoa(*port), nil))
 }
 
 var runMu sync.Mutex
 var runCancel context.CancelFunc = func() {}
 
-func Run(req io.Reader) (CommandOut, error) {
+func Run(command string) (CommandOut, error) {
 	var output CommandOut
 	runMu.Lock()
 	defer runMu.Unlock()
@@ -198,71 +191,14 @@ func Run(req io.Reader) (CommandOut, error) {
 		log.Println(err)
 		return output, err
 	}
-	err = shell.Run(runCtx, req)
+	err = shell.Run(runCtx, command)
 	if err != nil {
 		log.Println(err)
 	}
 
 	output.Dir = shell.Dir()
-	output.Stdout = string(terminal.Render(stdout.Bytes()))
-	output.RawStdout = stdout.String()
+	output.Stdout = stdout.String()
 	output.Stderr = stderr.String()
 	output.Err = err
 	return output, nil
-}
-
-func HandleRun(w http.ResponseWriter, req *http.Request) {
-	output, err := Run(req.Body)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	o, err := json.Marshal(output)
-	if err != nil {
-		log.Println(err)
-	}
-	_, err = w.Write(o)
-	if err != nil {
-		log.Println(err)
-	}
-
-}
-
-var compCancel context.CancelFunc = func() {}
-
-func HandleComplete(w http.ResponseWriter, req *http.Request) {
-	var compReq CompletionReq
-	err := json.NewDecoder(req.Body).Decode(&compReq)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	if compCancel != nil {
-		compCancel()
-	}
-	runMu.Lock()
-	defer runMu.Unlock()
-	var compCtx context.Context
-
-	compCtx, compCancel = context.WithCancel(context.Background())
-	defer runCancel()
-
-	out, err := shell.Complete(compCtx, compReq)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	o, err := json.Marshal(out)
-	if err != nil {
-		log.Println(err)
-	}
-	_, err = w.Write(o)
-	if err != nil {
-		log.Println(err)
-	}
-}
-
-func HandleCancel(w http.ResponseWriter, req *http.Request) {
-	log.Print("Received cancel")
-	runCancel()
 }

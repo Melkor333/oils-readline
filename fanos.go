@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"github.com/creack/pty"
 	"gopkg.in/alessio/shellescape.v1"
@@ -40,7 +41,9 @@ func NewFANOSShell() (*FANOSShell, error) {
 	shell.cmd.Stdin = server
 	shell.cmd.Stdout = server
 
-	shell.cmd.Stderr = os.Stderr
+	// TODO: Should be checked
+	shell.cmd.Stderr = io.Discard
+	//shell.cmd.Stderr = os.Stdout
 
 	return shell, shell.cmd.Start()
 }
@@ -62,12 +65,12 @@ func (s *FANOSShell) StdIO(in, out, err *os.File) error {
 }
 
 // Run calls the FANOS EVAL method
-func (s *FANOSShell) Run(ctx context.Context, r io.Reader) error {
+func (s *FANOSShell) Run(ctx context.Context, command string) error {
 	rights := syscall.UnixRights(int(s.in.Fd()), int(s.out.Fd()), int(s.err.Fd()))
 
 	var buf bytes.Buffer
 	buf.WriteString("EVAL ")
-	_, err := io.Copy(&buf, r)
+	_, err := io.Copy(&buf, strings.NewReader(command))
 	if err != nil {
 		return err
 	}
@@ -91,7 +94,10 @@ func (s *FANOSShell) Run(ctx context.Context, r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	log.Println(msg)
+	if !strings.HasSuffix(msg, ":OK ,") {
+	        return errors.New("FANOS Replied NOK")
+	}
+	// log.Println(msg)
 
 	return nil
 }
