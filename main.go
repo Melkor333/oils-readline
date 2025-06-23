@@ -16,24 +16,15 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	//"fmt"
+	"encoding/json"
 	"flag"
-	"fmt"
-	"github.com/creack/pty"
-	"github.com/reeflective/readline"
-	"io"
-	"log"
-	"os"
-	"path"
 	"strings"
-	"sync"
-	"syscall"
-)
-
-var (
-	fifo  = flag.Bool("fifo", true, "Use named fifo instead of anonymous pipe")
-	debug = flag.Bool("debug", false, "Watch and live reload typescript")
+	//"github.com/buildkite/terminal-to-html/v3"
+	"github.com/reeflective/readline"
+	"log"
+	"net/http"
 )
 
 var shell Shell
@@ -61,31 +52,47 @@ type CompletionResult struct {
 }
 
 type Shell interface {
-	StdIO(*os.File, *os.File, *os.File) error
-	Run(context.Context, string) error
+	//StdIO(*os.File, *os.File, *os.File) error
+	Run(*Command) error
 	Complete(context.Context, CompletionReq) (*CompletionResult, error)
 	Dir() string
 }
 
-type CommandOut struct {
-	Dir                  string
-	Stdout, Stderr       string
-	Err                  error
-}
-
+var commands []*Command
 var prompt string
 
 func main() {
 	flag.Parse()
-	//log.SetFlags(log.LstdFlags | log.Lshortfile)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	var command string
 	var err error
-	var out, pwd CommandOut
+
+	commands = make([]*Command, 0)
+
+	shell, err = NewFANOSShell()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//http.HandleFunc("/run", HandleRun)
+	////http.HandleFunc("/complete", HandleComplete)
+	//http.HandleFunc("/cancel", HandleCancel)
+	//http.HandleFunc("/status", HandleStatus)
+	//http.Handle("/", http.FileServer(http.Dir("./web")))
+	//log.Fatal(http.ListenAndServe(*host+":"+strconv.Itoa(*port), nil))
+	var command string
 
 	shell, _ = NewFANOSShell()
 	rl := readline.NewShell()
+	// Show that a process is still running...
 	rl.Prompt.Primary(func() string {
+		if len(commands) > 0 {
+			if commands[len(commands)-1].Status == "" {
+				return ">1" + prompt
+
+			}
+
+		}
 		return prompt
 	})
 	// TODOS:
@@ -96,30 +103,31 @@ func main() {
 	// Highlight bash -> pygments (if `osh...?`
 	// LONGTERM:
 	// go back to recent command/cycle through/search, etc.
+	updatePrompt(&shell)
 	for {
-		// Update prompt
-		pwd, err = Run("pwd | sed \"s|$[ENV.HOME]|~|\"")
-		if err != nil {
-			log.Println(err)
-		}
-		prompt = strings.TrimSuffix(pwd.Stdout, "\n\n") + " $ "
-
 		// readline
 		command, err = rl.Readline()
 		if err != nil {
 			log.Println(err)
 		}
-		if command == "" {
+
+		// TODO: Copy isEmpty() function from reeflective/console
+		if command == "" || command == "\n" {
 			continue
 		}
 
 		// FANOS
-		out, err = Run(command)
-		if err != nil {
-			log.Println(err)
-		}
+		c := NewCommand(command)
+		go shell.Run(c)
+		commands = append(commands, c)
 
-		fmt.Println(out.Stdout)
+		go func() {
+			//out.wg.Wait()
+			rl.Printf(commands[len(commands)-1].Stdout)
+			updatePrompt(&shell)
+		}()
+		
+		//out.wg.Done()
 		//_, err = rl.Printf(out.Stdout)
 		//if err != nil {
 		//	log.Println(err)
@@ -128,77 +136,60 @@ func main() {
 
 }
 
-var runMu sync.Mutex
+func updatePrompt(s *Shell) {
+		command := NewCommand("pwd | sed \"s|$[ENV.HOME]|~|\"")
+		shell.Run(command)
+		prompt = strings.TrimSuffix(command.Stdout, "\n") + " $ "
+
+}
+
 var runCancel context.CancelFunc = func() {}
 
-func Run(command string) (CommandOut, error) {
-	var output CommandOut
-	runMu.Lock()
-	defer runMu.Unlock()
-	var stdout, stderr bytes.Buffer
-	var runCtx context.Context
+//func HandleRun(w http.ResponseWriter, req *http.Request) {
+//	output := Run(req.Body)
+//	o, err := json.Marshal(output)
+//	if err != nil {
+//		log.Println(err)
+//	}
+//	_, err = w.Write(o)
+//	if err != nil {
+//		log.Println(err)
+//	}
+//}
 
-	runCtx, runCancel = context.WithCancel(context.Background())
+var compCancel context.CancelFunc = func() {}
+
+func HandleComplete(w http.ResponseWriter, req *http.Request) {
+	var compReq CompletionReq
+	err := json.NewDecoder(req.Body).Decode(&compReq)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	if compCancel != nil {
+		compCancel()
+	}
+	var compCtx context.Context
+
+	compCtx, compCancel = context.WithCancel(context.Background())
 	defer runCancel()
 
-	ptmx, pts, err := pty.Open()
+	out, err := shell.Complete(compCtx, compReq)
 	if err != nil {
 		log.Println(err)
-		return output, err
+		return
 	}
-	defer func() {
-		ptmx.Close()
-		pts.Close()
-	}()
-	go io.Copy(&stdout, ptmx)
-
-	var pipe *os.File
-	if *fifo {
-		dir := os.TempDir()
-		pipeName := path.Join(dir, "errpipe")
-		syscall.Mkfifo(pipeName, 0600)
-		// If you open only the read side, then you need to open with O_NONBLOCK
-		// and clear that flag after opening.
-		//	pipe, err := os.OpenFile(pipeName, os.O_RDONLY|syscall.O_NONBLOCK, 0600)
-		pipe, err = os.OpenFile(pipeName, os.O_RDWR, 0600)
-		if err != nil {
-			log.Println(err)
-			return output, err
-		}
-		defer func() {
-			pipe.Close()
-			os.Remove(pipeName)
-			os.Remove(dir)
-		}()
-		go io.Copy(&stderr, pipe)
-	} else {
-		var rdPipe *os.File
-		rdPipe, pipe, err = os.Pipe()
-		if err != nil {
-			log.Println(err)
-			return output, err
-		}
-		go func() {
-			io.Copy(&stderr, rdPipe)
-			rdPipe.Close()
-			pipe.Close()
-		}()
-	}
-
-	// Reset stdio of runner before running a new command
-	err = shell.StdIO(nil, pts, pipe)
-	if err != nil {
-		log.Println(err)
-		return output, err
-	}
-	err = shell.Run(runCtx, command)
+	o, err := json.Marshal(out)
 	if err != nil {
 		log.Println(err)
 	}
+	_, err = w.Write(o)
+	if err != nil {
+		log.Println(err)
+	}
+}
 
-	output.Dir = shell.Dir()
-	output.Stdout = stdout.String()
-	output.Stderr = stderr.String()
-	output.Err = err
-	return output, nil
+func HandleCancel(w http.ResponseWriter, req *http.Request) {
+	log.Print("Received cancel")
+	runCancel()
 }

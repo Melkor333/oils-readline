@@ -4,21 +4,22 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"errors"
 	"flag"
-	"github.com/creack/pty"
-	"gopkg.in/alessio/shellescape.v1"
-	"io"
+	//"io"
 	"log"
 	"os"
 	"os/exec"
+	"path"
 	"strconv"
-	"strings"
 	"syscall"
+
+	"github.com/creack/pty"
+	//"gopkg.in/alessio/shellescape.v1"
 )
 
 var (
 	fanosShellPath = flag.String("oil_path", "/usr/bin/oil", "Path to Oil shell interpreter")
+	fifo  = flag.Bool("fifo", false, "Use named fifo instead of anonymous pipe")
 )
 
 type FANOSShell struct {
@@ -41,46 +42,118 @@ func NewFANOSShell() (*FANOSShell, error) {
 	shell.cmd.Stdin = server
 	shell.cmd.Stdout = server
 
-	// TODO: Should be checked
-	shell.cmd.Stderr = io.Discard
-	//shell.cmd.Stderr = os.Stdout
+	shell.cmd.Stderr = os.Stderr
 
 	return shell, shell.cmd.Start()
 }
 
-func (s *FANOSShell) StdIO(in, out, err *os.File) error {
-	// Save these for the next Run
-	s.in, s.out, s.err = in, out, err
-	if s.in == nil {
-		s.in, _ = os.Open(os.DevNull)
-	}
-	if s.out == nil {
-		s.out, _ = os.Open(os.DevNull)
-	}
-	if s.err == nil {
-		s.err, _ = os.Open(os.DevNull)
-	}
-
-	return nil
-}
+//func (s *FANOSShell) StdIO(in, out, err *os.File) error {
+//	// Save these for the next Run
+//	s.in, s.out, s.err = in, out, err
+//	if s.in == nil {
+//		s.in, _ = os.Open(os.DevNull)
+//	}
+//	if s.out == nil {
+//		s.out, _ = os.Open(os.DevNull)
+//	}
+//	if s.err == nil {
+//		s.err, _ = os.Open(os.DevNull)
+//	}
+//
+//	return nil
+//}
 
 // Run calls the FANOS EVAL method
-func (s *FANOSShell) Run(ctx context.Context, command string) error {
-	rights := syscall.UnixRights(int(s.in.Fd()), int(s.out.Fd()), int(s.err.Fd()))
+// Only `CommandLine` needs to be defined
+func (s *FANOSShell) Run(command *Command) error {
+	// To be added before invocation!
+	// TODO: assert there is 1?
+	//defer command.wg.Done()
 
-	var buf bytes.Buffer
-	buf.WriteString("EVAL ")
-	_, err := io.Copy(&buf, strings.NewReader(command))
+	command.ctx, runCancel = context.WithCancel(context.Background())
+	// TODO: Cancel!
+	//defer runCancel()
+
+	// ------------------
+	// Setup File Descriptors, read them into `command.stdXXX`
+	// ------------------
+
+	// TODO: should be set via an API?
+	// TODO: should createCommand be big?
+
+	ptmx, _stdout, err := pty.Open()
 	if err != nil {
+		log.Println(err)
+		// TODO: update the command.status to "failed" and don't return an error
+		// TODO: Should be done with all returns here
+		return err
+	}
+	defer func() {
+		ptmx.Close()
+		_stdout.Close()
+	}()
+
+	var _stderr, rdPipe *os.File
+	// Open a fifo for stderr
+	if *fifo {
+		dir := os.TempDir()
+		pipeName := path.Join(dir, "errpipe")
+		syscall.Mkfifo(pipeName, 0600)
+		// If you open only the read side, then you need to open with O_NONBLOCK
+		// and clear that flag after opening.
+		//	pipe, err := os.OpenFile(pipeName, os.O_RDONLY|syscall.O_NONBLOCK, 0600)
+		_stderr, err := os.OpenFile(pipeName, os.O_RDWR, 0600)
+		// read/write are the same for FIFOs
+		rdPipe = _stderr
+		//log.Println(int(_stderr.Fd()))
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		defer func() {
+			_stderr.Close()
+			os.Remove(pipeName)
+			os.Remove(dir)
+		}()
+	} else {
+		rdPipe, _stderr, err := os.Pipe()
+		//log.Println(int(_stderr.Fd()))
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		defer func() {
+			rdPipe.Close()
+			_stderr.Close()
+		}()
+	}
+
+	stdin, err := os.Open(os.DevNull)
+	if err != nil {
+		log.Println(err)
 		return err
 	}
 
+	// ------------------
+	// Send command and FDs via FANOS
+	// ------------------
+	rights := syscall.UnixRights(int(stdin.Fd()), int(_stdout.Fd()), int(_stderr.Fd()))
+	command.StdIO(
+		stdin,
+		ptmx,
+		rdPipe)
+	var buf bytes.Buffer
+	buf.WriteString("EVAL ")
+	buf.WriteString(command.CommandLine)
+	// Send command per Netstring
 	_, err = s.socket.Write([]byte(strconv.Itoa(buf.Len()) + ":"))
 	if err != nil {
+		log.Println(err)
 		return err
 	}
 	err = syscall.Sendmsg(int(s.socket.Fd()), buf.Bytes(), rights, nil, 0)
 	if err != nil {
+		log.Println(err)
 		return err
 	}
 	_, err = s.socket.Write([]byte(","))
@@ -89,15 +162,19 @@ func (s *FANOSShell) Run(ctx context.Context, command string) error {
 	}
 
 	// TODO: Actually read netstring instead of reading until ','
+	// Wait for FANOS Answer
+	//log.Println("Running command")
 	sockReader := bufio.NewReader(s.socket)
-	msg, err := sockReader.ReadString(',')
+	_, err = sockReader.ReadString(',')
 	if err != nil {
 		return err
 	}
-	if !strings.HasSuffix(msg, ":OK ,") {
-	        return errors.New("FANOS Replied NOK")
-	}
-	// log.Println(msg)
+	//log.Println(msg)
+	command.Status = "done"
+	//log.Println("Command is done")
+	//log.Println(command.Id)
+	command.wg.Done()
+	command.wg.Wait()
 
 	return nil
 }
@@ -109,83 +186,5 @@ func (s *FANOSShell) Dir() string {
 func (s *FANOSShell) Complete(ctx context.Context, r CompletionReq) (*CompletionResult, error) {
 	comps := CompletionResult{}
 	comps.To = len(r.Text)
-	//// STDIO stuff
-	var stdout, stderr bytes.Buffer
-	ptmx, pts, err := pty.Open()
-	if err != nil {
-		log.Println(err)
-		return &comps, err
-	}
-	defer func() {
-		ptmx.Close()
-		pts.Close()
-	}()
-	go io.Copy(&stdout, ptmx)
-
-	var pipe *os.File
-	var rdPipe *os.File
-	rdPipe, pipe, err = os.Pipe()
-	if err != nil {
-		log.Println(err)
-		return &comps, err
-	}
-	go func() {
-		io.Copy(&stderr, rdPipe)
-		rdPipe.Close()
-		pipe.Close()
-	}()
-	// Reset stdio of runner before running a new command
-	err = shell.StdIO(nil, pts, pipe)
-	if err != nil {
-		log.Println(err)
-		return &comps, err
-	}
-
-	//// Run stuff
-	rights := syscall.UnixRights(int(s.in.Fd()), int(s.out.Fd()), int(s.err.Fd()))
-	s.StdIO(nil, nil, nil)
-	var buf bytes.Buffer
-	buf.WriteString("EVAL ")
-	_, err = io.Copy(&buf, strings.NewReader("compexport -c "+shellescape.Quote(r.Text)))
-	if err != nil {
-		log.Println(err)
-		return nil, err
-	}
-	_, err = s.socket.Write([]byte(strconv.Itoa(buf.Len()) + ":"))
-	if err != nil {
-		log.Println(err)
-		return nil, err
-	}
-	err = syscall.Sendmsg(int(s.socket.Fd()), buf.Bytes(), rights, nil, 0)
-	if err != nil {
-		log.Println(err)
-		return nil, err
-	}
-	_, err = s.socket.Write([]byte(","))
-	if err != nil {
-		log.Println(err)
-		return nil, err
-	}
-
-	// TODO: Actually read netstring instead of reading until ','
-	sockReader := bufio.NewReader(s.socket)
-	msg, err := sockReader.ReadString(',')
-	if err != nil {
-		log.Println(err)
-		return nil, err
-	}
-	log.Println(msg)
-
-	completions := strings.Split(stdout.String(), "\n")
-
-	comps.Options = make([]Completion, len(completions))
-	for i, completion := range completions {
-		log.Println(completion)
-		if len(completion) > 2 {
-			comps.Options[i] = Completion{
-				Label: completion[1 : len(completion)-2],
-			}
-		}
-	}
 	return &comps, nil
 }
