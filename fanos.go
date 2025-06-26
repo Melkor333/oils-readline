@@ -45,7 +45,13 @@ func NewFANOSShell() (*FANOSShell, error) {
 	shell.cmd.Stderr = io.Discard
 	//shell.cmd.Stderr = os.Stderr
 
-	return shell, shell.cmd.Start()
+	o := shell.cmd.Start()
+	// TODO: Graceful exit
+	go func() {
+		shell.cmd.Wait()
+		os.Exit(0)
+	}()
+	return shell, o
 }
 
 //func (s *FANOSShell) StdIO(in, out, err *os.File) error {
