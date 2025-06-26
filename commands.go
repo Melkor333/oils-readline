@@ -3,9 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
-	"sync"
-	"strings"
 	"io"
+	"strings"
+	"sync"
 )
 
 type Command struct {
@@ -15,12 +15,12 @@ type Command struct {
 	Stdout, Stderr, Status string
 	err                    error
 	//Id                     int
-	ctx                    context.Context
-	cancel                 context.CancelFunc
-	stdin                  io.Writer
-	stdout, stderr         *bytes.Buffer
-	wg                     *sync.WaitGroup
-        lock                   *sync.Mutex
+	ctx            context.Context
+	cancel         context.CancelFunc
+	stdin          io.Writer
+	stdout, stderr *bytes.Buffer
+	wg             *sync.WaitGroup
+	lock           *sync.Mutex
 }
 
 // chain -> to which chain to add the command? be here?
@@ -41,7 +41,7 @@ func NewCommand(commandLine string) *Command {
 	return command
 
 }
-func (c *Command) StdIO (stdin io.Writer, stdout io.Reader, stderr io.Reader) {
+func (c *Command) StdIO(stdin io.Writer, stdout io.Reader, stderr io.Reader) {
 	c.stdin = stdin
 
 	// stdout

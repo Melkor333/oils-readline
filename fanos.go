@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"context"
 	"flag"
-	//"io"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -19,7 +19,7 @@ import (
 
 var (
 	fanosShellPath = flag.String("oil_path", "/usr/bin/oil", "Path to Oil shell interpreter")
-	fifo  = flag.Bool("fifo", false, "Use named fifo instead of anonymous pipe")
+	fifo           = flag.Bool("fifo", false, "Use named fifo instead of anonymous pipe")
 )
 
 type FANOSShell struct {
@@ -42,7 +42,8 @@ func NewFANOSShell() (*FANOSShell, error) {
 	shell.cmd.Stdin = server
 	shell.cmd.Stdout = server
 
-	shell.cmd.Stderr = os.Stderr
+	shell.cmd.Stderr = io.Discard
+	//shell.cmd.Stderr = os.Stderr
 
 	return shell, shell.cmd.Start()
 }
@@ -64,7 +65,6 @@ func NewFANOSShell() (*FANOSShell, error) {
 //}
 
 // Run calls the FANOS EVAL method
-// Only `CommandLine` needs to be defined
 func (s *FANOSShell) Run(command *Command) error {
 	// To be added before invocation!
 	// TODO: assert there is 1?
@@ -102,7 +102,7 @@ func (s *FANOSShell) Run(command *Command) error {
 		// If you open only the read side, then you need to open with O_NONBLOCK
 		// and clear that flag after opening.
 		//	pipe, err := os.OpenFile(pipeName, os.O_RDONLY|syscall.O_NONBLOCK, 0600)
-		_stderr, err := os.OpenFile(pipeName, os.O_RDWR, 0600)
+		_stderr, err = os.OpenFile(pipeName, os.O_RDWR, 0600)
 		// read/write are the same for FIFOs
 		rdPipe = _stderr
 		//log.Println(int(_stderr.Fd()))
@@ -116,7 +116,7 @@ func (s *FANOSShell) Run(command *Command) error {
 			os.Remove(dir)
 		}()
 	} else {
-		rdPipe, _stderr, err := os.Pipe()
+		rdPipe, _stderr, err = os.Pipe()
 		//log.Println(int(_stderr.Fd()))
 		if err != nil {
 			log.Println(err)
@@ -174,7 +174,6 @@ func (s *FANOSShell) Run(command *Command) error {
 	//log.Println("Command is done")
 	//log.Println(command.Id)
 	command.wg.Done()
-	command.wg.Wait()
 
 	return nil
 }

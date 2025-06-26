@@ -12,7 +12,6 @@
 //
 // Apparently according to POSIX, stderr is supposed to be open for both
 // reading and writing...
-//
 package main
 
 import (
@@ -20,11 +19,10 @@ import (
 	//"fmt"
 	"encoding/json"
 	"flag"
-	"strings"
-	//"github.com/buildkite/terminal-to-html/v3"
 	"github.com/reeflective/readline"
 	"log"
 	"net/http"
+	"strings"
 )
 
 var shell Shell
@@ -62,10 +60,10 @@ var commands []*Command
 var prompt string
 
 func main() {
+	var err error
+	var command string
 	flag.Parse()
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
-	var err error
 
 	commands = make([]*Command, 0)
 
@@ -74,15 +72,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	//http.HandleFunc("/run", HandleRun)
-	////http.HandleFunc("/complete", HandleComplete)
-	//http.HandleFunc("/cancel", HandleCancel)
-	//http.HandleFunc("/status", HandleStatus)
-	//http.Handle("/", http.FileServer(http.Dir("./web")))
-	//log.Fatal(http.ListenAndServe(*host+":"+strconv.Itoa(*port), nil))
-	var command string
-
-	shell, _ = NewFANOSShell()
 	rl := readline.NewShell()
 	// Show that a process is still running...
 	rl.Prompt.Primary(func() string {
@@ -103,7 +92,7 @@ func main() {
 	// Highlight bash -> pygments (if `osh...?`
 	// LONGTERM:
 	// go back to recent command/cycle through/search, etc.
-	updatePrompt(&shell)
+	updatePrompt(shell)
 	for {
 		// readline
 		command, err = rl.Readline()
@@ -118,15 +107,20 @@ func main() {
 
 		// FANOS
 		c := NewCommand(command)
-		go shell.Run(c)
+		go func() {
+			err = shell.Run(c)
+			if err != nil {
+				log.Println(err)
+			}
+		}()
 		commands = append(commands, c)
 
 		go func() {
-			//out.wg.Wait()
-			rl.Printf(commands[len(commands)-1].Stdout)
-			updatePrompt(&shell)
+			c.wg.Wait()
+			updatePrompt(shell)
+			rl.PrintTransientf(strings.TrimSuffix(c.Stdout, "\n"))
 		}()
-		
+
 		//out.wg.Done()
 		//_, err = rl.Printf(out.Stdout)
 		//if err != nil {
@@ -136,10 +130,11 @@ func main() {
 
 }
 
-func updatePrompt(s *Shell) {
-		command := NewCommand("pwd | sed \"s|$[ENV.HOME]|~|\"")
-		shell.Run(command)
-		prompt = strings.TrimSuffix(command.Stdout, "\n") + " $ "
+func updatePrompt(s Shell) {
+	command := NewCommand("pwd | sed \"s|$[ENV.HOME]|~|\"")
+	shell.Run(command)
+	command.wg.Wait()
+	prompt = strings.Replace(command.Stdout, "\r\n", "", -1) + " $ "
 
 }
 
