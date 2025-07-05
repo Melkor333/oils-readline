@@ -10,6 +10,8 @@ require (
 	github.com/buildkite/terminal-to-html/v3 v3.6.1
 	github.com/creack/pty v1.1.11
 	github.com/evanw/esbuild v0.19.7
+	github.com/mcpherrinm/multireader v0.0.0-20210209030331-ecd0fad39ad6
+	github.com/reeflective/readline v1.1.3
 	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	mvdan.cc/sh/v3 v3.2.2
 )
@@ -26,14 +28,13 @@ require (
 	github.com/kr/text v0.1.0 // indirect
 	github.com/pkg/diff v0.0.0-20200914180035-5b29258ca4f7 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/reeflective/readline v1.1.3 // indirect
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/rogpeppe/go-internal v1.6.2 // indirect
 	github.com/russross/blackfriday/v2 v2.0.1 // indirect
 	github.com/sergi/go-diff v1.0.0 // indirect
 	github.com/shurcooL/sanitized_anchor_name v1.0.0 // indirect
 	github.com/stretchr/objx v0.1.0 // indirect
-	github.com/stretchr/testify v1.4.0 // indirect
+	github.com/stretchr/testify v1.7.0 // indirect
 	github.com/urfave/cli/v2 v2.2.0 // indirect
 	github.com/yuin/goldmark v1.4.13 // indirect
 	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519 // indirect

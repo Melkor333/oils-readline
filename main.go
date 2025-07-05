@@ -15,11 +15,15 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"strconv"
+	"sync/atomic"
 	//"fmt"
 	"encoding/json"
 	"flag"
 	"github.com/reeflective/readline"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -58,6 +62,7 @@ type Shell interface {
 
 var commands []*Command
 var prompt string
+var runningCommands *atomic.Int64
 
 func main() {
 	var err error
@@ -76,9 +81,9 @@ func main() {
 	// Show that a process is still running...
 	rl.Prompt.Primary(func() string {
 		if len(commands) > 0 {
-			if commands[len(commands)-1].Status == "" {
-				return ">1" + prompt
-
+			n := runningCommands.Load()
+			if n > 0 {
+				return ">" + strconv.FormatInt(n, 10) + " " + prompt
 			}
 
 		}
@@ -92,6 +97,9 @@ func main() {
 	// Highlight bash -> pygments (if `osh...?`
 	// LONGTERM:
 	// go back to recent command/cycle through/search, etc.
+
+	runningCommands = new(atomic.Int64)
+	runningCommands.Store(0)
 	updatePrompt(shell)
 	for {
 		// readline
@@ -113,12 +121,27 @@ func main() {
 				log.Println(err)
 			}
 		}()
+		runningCommands.Add(1)
+		go func() {
+			c.wg.Wait()
+			runningCommands.Add(-1)
+		}()
 		commands = append(commands, c)
 
 		go func() {
-			c.wg.Wait()
+			r := bufio.NewReader(c.stdout.Reader())
+			for {
+				l, err := r.ReadString('\n')
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
+					log.Println(err)
+
+				}
+				rl.PrintTransientf(l)
+			}
 			updatePrompt(shell)
-			rl.PrintTransientf(strings.TrimSuffix(c.Stdout, "\n"))
 		}()
 
 		//out.wg.Done()
@@ -134,8 +157,12 @@ func updatePrompt(s Shell) {
 	command := NewCommand("pwd | sed \"s|$[ENV.HOME]|~|\"")
 	shell.Run(command)
 	command.wg.Wait()
-	prompt = strings.Replace(command.Stdout, "\r\n", "", -1) + " $ "
-
+	buf := new(strings.Builder)
+	_, err := io.Copy(buf, command.stdout.Reader())
+	if err != nil {
+		log.Println(err)
+	}
+	prompt = strings.Replace(buf.String(), "\r\n", "", -1) + " $ "
 }
 
 var runCancel context.CancelFunc = func() {}

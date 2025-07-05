@@ -1,10 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	//TODO: no unnecessary depth
+	"github.com/mcpherrinm/multireader"
 	"io"
-	"strings"
 	"sync"
 )
 
@@ -12,13 +12,12 @@ type Command struct {
 	shell       Shell
 	CommandLine string
 	// TODO: stdout/err should always just be a (buffered) reader!
-	Stdout, Stderr, Status string
-	err                    error
+	err error
 	//Id                     int
 	ctx            context.Context
 	cancel         context.CancelFunc
 	stdin          io.Writer
-	stdout, stderr *bytes.Buffer
+	stdout, stderr *multireader.Buffer
 	wg             *sync.WaitGroup
 	lock           *sync.Mutex
 }
@@ -31,8 +30,8 @@ func NewCommand(commandLine string) *Command {
 	command.wg = new(sync.WaitGroup)
 	command.wg.Add(1)
 	// TODO: somethingsomething TeeReader...?
-	command.stdout = new(bytes.Buffer)
-	command.stderr = new(bytes.Buffer)
+	command.stdout = multireader.New()
+	command.stderr = multireader.New()
 	// TODO: Create a History object?
 	//commMu.Lock()
 	// TODO: UUID? even necessary?
@@ -48,20 +47,16 @@ func (c *Command) StdIO(stdin io.Writer, stdout io.Reader, stderr io.Reader) {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
+		defer c.stdout.Close()
 		io.Copy(c.stdout, stdout)
-		buf := new(strings.Builder)
-		io.Copy(buf, c.stdout)
-		c.Stdout = buf.String()
 	}()
 
 	// stderr
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
+		defer c.stderr.Close()
 		io.Copy(c.stderr, stderr)
-		buf := new(strings.Builder)
-		io.Copy(buf, c.stderr)
-		c.Stderr = buf.String()
 	}()
 }
 

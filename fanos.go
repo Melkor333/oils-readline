@@ -176,7 +176,6 @@ func (s *FANOSShell) Run(command *Command) error {
 		return err
 	}
 	//log.Println(msg)
-	command.Status = "done"
 	//log.Println("Command is done")
 	//log.Println(command.Id)
 	command.wg.Done()
