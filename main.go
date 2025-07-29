@@ -145,6 +145,22 @@ func main() {
 			updatePrompt(shell)
 		}()
 
+		go func() {
+			r := bufio.NewReader(c.stderr.Reader())
+			for {
+				l, err := r.ReadString('\n')
+				fmt.Printf(l)
+				//rl.PrintTransientf(l)
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
+					log.Println(err)
+				}
+			}
+			updatePrompt(shell)
+		}()
+
 		r := bufio.NewReader(os.Stdin)
 		for {
 			b, err := r.ReadByte()
