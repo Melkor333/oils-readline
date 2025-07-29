@@ -134,21 +134,12 @@ func (s *FANOSShell) Run(command *Command) error {
 		}()
 	}
 
-	_stdin, stdin, err := os.Pipe()
-	defer _stdin.Close()
-
-	//log.Println(int(_stderr.Fd()))
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-
 	// ------------------
 	// Send command and FDs via FANOS
 	// ------------------
-	rights := syscall.UnixRights(int(_stdin.Fd()), int(_stdout.Fd()), int(_stderr.Fd()))
+	rights := syscall.UnixRights(int(ptmx.Fd()), int(_stdout.Fd()), int(_stderr.Fd()))
 	command.StdIO(
-		stdin,
+		ptmx,
 		ptmx,
 		rdPipe)
 	var buf bytes.Buffer

@@ -20,7 +20,7 @@ import (
 	"context"
 	"strconv"
 	"sync/atomic"
-	"fmt"
+	//"fmt"
 	"encoding/json"
 	"flag"
 	"github.com/reeflective/readline"
@@ -132,8 +132,8 @@ func main() {
 		go func() {
 			r := bufio.NewReader(c.stdout.Reader())
 			for {
-				l, err := r.ReadString('\n')
-				fmt.Printf(l)
+				l, err := r.ReadByte()
+				os.Stdout.Write([]byte{l})
 				//rl.PrintTransientf(l)
 				if err != nil {
 					if err == io.EOF {
@@ -148,8 +148,8 @@ func main() {
 		go func() {
 			r := bufio.NewReader(c.stderr.Reader())
 			for {
-				l, err := r.ReadString('\n')
-				fmt.Printf(l)
+				b, err := r.ReadByte()
+				os.Stdout.Write([]byte{b})
 				//rl.PrintTransientf(l)
 				if err != nil {
 					if err == io.EOF {
@@ -165,8 +165,10 @@ func main() {
 		for {
 			b, err := r.ReadByte()
 			if err != nil {
+				if err == io.EOF {
+					break
+				}
 				log.Println(err)
-				break
 			}
 			_, err = c.stdin.Write([]byte{b})
 			if err != nil {
