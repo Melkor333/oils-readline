@@ -16,10 +16,11 @@ package main
 
 import (
 	"bufio"
+	"os"
 	"context"
 	"strconv"
 	"sync/atomic"
-	//"fmt"
+	"fmt"
 	"encoding/json"
 	"flag"
 	"github.com/reeflective/readline"
@@ -132,17 +133,32 @@ func main() {
 			r := bufio.NewReader(c.stdout.Reader())
 			for {
 				l, err := r.ReadString('\n')
+				fmt.Printf(l)
+				//rl.PrintTransientf(l)
 				if err != nil {
 					if err == io.EOF {
 						break
 					}
 					log.Println(err)
-
 				}
-				rl.PrintTransientf(l)
 			}
 			updatePrompt(shell)
 		}()
+
+		r := bufio.NewReader(os.Stdin)
+		for {
+			b, err := r.ReadByte()
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			_, err = c.stdin.Write([]byte{b})
+			if err != nil {
+				//log.Println(err)
+				break
+			}
+		}
+		c.wg.Wait()
 
 		//out.wg.Done()
 		//_, err = rl.Printf(out.Stdout)
