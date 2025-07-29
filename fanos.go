@@ -87,7 +87,7 @@ func (s *FANOSShell) Run(command *Command) error {
 	// TODO: should be set via an API?
 	// TODO: should createCommand be big?
 
-	ptmx, _stdout, err := pty.Open()
+	ptmx, tty, err := pty.Open()
 	if err != nil {
 		log.Println(err)
 		// TODO: update the command.status to "failed" and don't return an error
@@ -96,7 +96,7 @@ func (s *FANOSShell) Run(command *Command) error {
 	}
 	defer func() {
 		ptmx.Close()
-		_stdout.Close()
+		tty.Close()
 	}()
 
 	var _stderr, rdPipe *os.File
@@ -137,10 +137,10 @@ func (s *FANOSShell) Run(command *Command) error {
 	// ------------------
 	// Send command and FDs via FANOS
 	// ------------------
-	rights := syscall.UnixRights(int(ptmx.Fd()), int(_stdout.Fd()), int(_stderr.Fd()))
+	rights := syscall.UnixRights(int(ptmx.Fd()), int(ptmx.Fd()), int(_stderr.Fd()))
 	command.StdIO(
-		ptmx,
-		ptmx,
+		tty,
+		tty,
 		rdPipe)
 	var buf bytes.Buffer
 	buf.WriteString("EVAL ")
