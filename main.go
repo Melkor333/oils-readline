@@ -15,7 +15,6 @@
 package main
 
 import (
-	"bufio"
 	"os"
 	"context"
 	"strconv"
@@ -24,6 +23,7 @@ import (
 	"encoding/json"
 	"flag"
 	"github.com/reeflective/readline"
+	"github.com/muesli/cancelreader"
 	"io"
 	"log"
 	"net/http"
@@ -130,53 +130,42 @@ func main() {
 		commands = append(commands, c)
 
 		go func() {
-			r := bufio.NewReader(c.stdout.Reader())
-			for {
-				l, err := r.ReadByte()
-				os.Stdout.Write([]byte{l})
-				//rl.PrintTransientf(l)
-				if err != nil {
-					if err == io.EOF {
-						break
-					}
-					log.Println(err)
-				}
+			_, err := io.Copy(os.Stdout, c.stdout.Reader())
+			if err != nil {
+				log.Println(err)
 			}
 			updatePrompt(shell)
 		}()
 
 		go func() {
-			r := bufio.NewReader(c.stderr.Reader())
-			for {
-				b, err := r.ReadByte()
-				os.Stdout.Write([]byte{b})
-				//rl.PrintTransientf(l)
-				if err != nil {
-					if err == io.EOF {
-						break
-					}
-					log.Println(err)
-				}
+			_, err := io.Copy(os.Stdout, c.stderr.Reader())
+			if err != nil {
+				log.Println(err)
 			}
-			updatePrompt(shell)
 		}()
 
-		r := bufio.NewReader(os.Stdin)
+		//TODO: err handling
+		r, _ := cancelreader.NewReader(os.Stdin)
+		go func() {
+		  c.wg.Wait()
+		  r.Cancel()
+		}()
+		var buf []byte
 		for {
-			b, err := r.ReadByte()
+			_, err := r.Read(buf)
 			if err != nil {
 				if err == io.EOF {
 					break
 				}
-				log.Println(err)
+				break
+				//log.Println(err)
 			}
-			_, err = c.stdin.Write([]byte{b})
+			_, err = c.stdin.Write(buf)
 			if err != nil {
 				//log.Println(err)
 				break
 			}
 		}
-		c.wg.Wait()
 
 		//out.wg.Done()
 		//_, err = rl.Printf(out.Stdout)

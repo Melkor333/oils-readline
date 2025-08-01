@@ -26,6 +26,7 @@ require (
 	github.com/kr/pretty v0.2.1 // indirect
 	github.com/kr/pty v1.1.1 // indirect
 	github.com/kr/text v0.1.0 // indirect
+	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/pkg/diff v0.0.0-20200914180035-5b29258ca4f7 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.4 // indirect
