@@ -46,8 +46,9 @@ func NewCommand(commandLine string) *Command {
 }
 
 func (c *Command) Stdin() *os.File {
-	// todo: unlock when detached!
+	// TODO: don't jse alock to wait...
 	c.stdinMu.Lock()
+	defer c.stdinMu.Unlock()
 	return c.stdin
 }
 

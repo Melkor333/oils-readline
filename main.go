@@ -22,9 +22,12 @@ import (
 	//"fmt"
 	"encoding/json"
 	"flag"
+	// blatant copy reeflective/readline :')
+	"github.com/Melkor333/oils-readline/internal/term"
 	"github.com/reeflective/readline"
 	"github.com/muesli/cancelreader"
-	"golang.org/x/sys/unix"
+	// TODO: should be in a module ;)
+	"github.com/creack/pty"
 	"io"
 	"log"
 	"net/http"
@@ -103,11 +106,10 @@ func main() {
 	runningCommands = new(atomic.Int64)
 	runningCommands.Store(0)
 	updatePrompt(shell)
-	// TODO  copy reeflective/readline platform agnostic way
-	// This o ly works on linux
-	fd := int(os.Stdin.Fd())
-	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
-	defer unix.IoctlSetTermios(fd, unix.TCSETS, termios)
+	descriptor := int(os.Stdin.Fd())
+	state, _ := term.GetState(descriptor)
+	term.Restore(descriptor, state)
+	defer term.Restore(descriptor, state)
 	for {
 		// readline
 		command, err = rl.Readline()
@@ -121,6 +123,13 @@ func main() {
 		}
 
 		// FANOS
+
+		state, err := term.MakeRaw(descriptor)
+		if err != nil {
+			return
+		}
+
+
 		c := NewCommand(command)
 		go func() {
 			err = shell.Run(c)
@@ -135,6 +144,9 @@ func main() {
 		}()
 		commands = append(commands, c)
 
+		// TODO: capture resizes
+		size, _ := pty.GetsizeFull(os.Stdin)
+		pty.Setsize(c.Stdin(), size)
 		go func() {
 			_, err := io.Copy(os.Stdout, c.stdout.Reader())
 			if err != nil {
@@ -166,6 +178,8 @@ func main() {
 			}
 		}
 
+		term.Restore(descriptor, state)
+		updatePrompt(shell)
 		//out.wg.Done()
 		//_, err = rl.Printf(out.Stdout)
 		//if err != nil {
