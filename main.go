@@ -24,6 +24,7 @@ import (
 	"flag"
 	"github.com/reeflective/readline"
 	"github.com/muesli/cancelreader"
+	"golang.org/x/sys/unix"
 	"io"
 	"log"
 	"net/http"
@@ -102,6 +103,11 @@ func main() {
 	runningCommands = new(atomic.Int64)
 	runningCommands.Store(0)
 	updatePrompt(shell)
+	// TODO  copy reeflective/readline platform agnostic way
+	// This o ly works on linux
+	fd := int(os.Stdin.Fd())
+	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	defer unix.IoctlSetTermios(fd, unix.TCSETS, termios)
 	for {
 		// readline
 		command, err = rl.Readline()
