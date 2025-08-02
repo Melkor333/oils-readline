@@ -137,10 +137,10 @@ func (s *FANOSShell) Run(command *Command) error {
 	// ------------------
 	// Send command and FDs via FANOS
 	// ------------------
-	rights := syscall.UnixRights(int(ptmx.Fd()), int(ptmx.Fd()), int(_stderr.Fd()))
+	rights := syscall.UnixRights(int(tty.Fd()), int(tty.Fd()), int(_stderr.Fd()))
 	command.StdIO(
-		tty,
-		tty,
+		ptmx,
+		ptmx,
 		rdPipe)
 	var buf bytes.Buffer
 	buf.WriteString("EVAL ")
