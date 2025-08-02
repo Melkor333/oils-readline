@@ -6,6 +6,7 @@ import (
 	"github.com/mcpherrinm/multireader"
 	"io"
 	"sync"
+	"os"
 )
 
 type Command struct {
@@ -16,7 +17,8 @@ type Command struct {
 	//Id                     int
 	ctx            context.Context
 	cancel         context.CancelFunc
-	stdin          io.Writer
+	stdinMu        sync.Mutex
+	stdin          *os.File
 	stdout, stderr *multireader.Buffer
 	wg             *sync.WaitGroup
 	lock           *sync.Mutex
@@ -32,6 +34,8 @@ func NewCommand(commandLine string) *Command {
 	// TODO: somethingsomething TeeReader...?
 	command.stdout = multireader.New()
 	command.stderr = multireader.New()
+	// to be unlocked when stdin exists.
+	command.stdinMu.Lock()
 	// TODO: Create a History object?
 	//commMu.Lock()
 	// TODO: UUID? even necessary?
@@ -40,8 +44,16 @@ func NewCommand(commandLine string) *Command {
 	return command
 
 }
-func (c *Command) StdIO(stdin io.Writer, stdout io.Reader, stderr io.Reader) {
+
+func (c *Command) Stdin() *os.File {
+	// todo: unlock when detached!
+	c.stdinMu.Lock()
+	return c.stdin
+}
+
+func (c *Command) StdIO(stdin *os.File, stdout *os.File, stderr io.Reader) {
 	c.stdin = stdin
+	c.stdinMu.Unlock()
 
 	// stdout
 	c.wg.Add(1)
@@ -59,8 +71,3 @@ func (c *Command) StdIO(stdin io.Writer, stdout io.Reader, stderr io.Reader) {
 		io.Copy(c.stderr, stderr)
 	}()
 }
-
-// TODO: create a TeeReader every time!
-//func (c *Command) Stdout () *io.Reader {
-//
-//}

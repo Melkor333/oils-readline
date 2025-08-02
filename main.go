@@ -134,11 +134,9 @@ func main() {
 			if err != nil {
 				log.Println(err)
 			}
-			updatePrompt(shell)
 		}()
-
 		go func() {
-			_, err := io.Copy(os.Stdout, c.stderr.Reader())
+			_, err := io.Copy(os.Stderr, c.stderr.Reader())
 			if err != nil {
 				log.Println(err)
 			}
@@ -150,20 +148,15 @@ func main() {
 		  c.wg.Wait()
 		  r.Cancel()
 		}()
-		var buf []byte
 		for {
-			_, err := r.Read(buf)
+			//_, err := r.Read(buf)
+			_, err := io.Copy(c.Stdin(), r)
 			if err != nil {
 				if err == io.EOF {
 					break
 				}
 				break
 				//log.Println(err)
-			}
-			_, err = c.stdin.Write(buf)
-			if err != nil {
-				//log.Println(err)
-				break
 			}
 		}
 
