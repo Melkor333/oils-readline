@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"bufio"
 	"bytes"
 	"context"
@@ -12,13 +13,18 @@ import (
 	"path"
 	"strconv"
 	"syscall"
+	_ "embed"
 
 	"github.com/creack/pty"
 	//"gopkg.in/alessio/shellescape.v1"
+	"github.com/amenzhinsky/go-memexec"
 )
 
+//go:embed assets/oils-for-unix-static.stripped
+var embeddedOils []byte
+
 var (
-	fanosShellPath = flag.String("oil_path", "/usr/bin/oil", "Path to Oil shell interpreter")
+	fanosShellPath = flag.String("oil_path", "", "Path to Oil shell interpreter")
 	fifo           = flag.Bool("fifo", false, "Use named fifo instead of anonymous pipe")
 )
 
@@ -31,11 +37,23 @@ type FANOSShell struct {
 
 func NewFANOSShell() (*FANOSShell, error) {
 	shell := &FANOSShell{}
-	shell.cmd = exec.Command(*fanosShellPath, "--headless")
+	if *fanosShellPath == "" {
+		// Use the mmap and syscall execution method described in the blog post
+		exe, err := memexec.New(embeddedOils)
+		//defer exe.Close()
+
+		if err != nil {
+			return nil, fmt.Errorf("Embedded oils: %w", err)
+		}
+		// TODO: Allow selecting ysh or osh!
+		shell.cmd = exe.Command("ysh", "--headless")
+	} else {
+		shell.cmd = exec.Command(*fanosShellPath, "--headless")
+	}
 
 	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't create socketpair: %w", err)
 	}
 	shell.socket = os.NewFile(uintptr(fds[0]), "fanos_client")
 	server := os.NewFile(uintptr(fds[1]), "fanos_server")
