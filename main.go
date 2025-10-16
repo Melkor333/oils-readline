@@ -15,8 +15,8 @@
 package main
 
 import (
-	"os"
 	"context"
+	"os"
 	"strconv"
 	"sync/atomic"
 	//"fmt"
@@ -24,17 +24,21 @@ import (
 	"flag"
 	// blatant copy reeflective/readline :')
 	"github.com/Melkor333/oils-readline/internal/term"
-	"github.com/reeflective/readline"
 	"github.com/muesli/cancelreader"
+	"github.com/reeflective/readline"
 	// TODO: should be in a module ;)
 	"github.com/creack/pty"
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 )
 
-var shell Shell
+var (
+	shell       Shell
+	historyFile = flag.String("historyFile", "$HOME/.local/share/oils/readline-history.json", "Path to the history file")
+)
 
 type CompletionReq struct {
 	Text string
@@ -83,6 +87,21 @@ func main() {
 	}
 
 	rl := readline.NewShell()
+	if err != nil {
+		log.Fatal(err)
+	}
+	var h string
+	if !strings.HasPrefix(*historyFile, "$HOME") {
+		h = *historyFile
+	} else {
+		c, err := os.UserHomeDir()
+		if err == nil {
+			h = c + "/.local/share/oils/history.json"
+		}
+	}
+	os.MkdirAll(filepath.Dir(h), os.ModePerm)
+	rl.History.AddFromFile("history", h)
+
 	// Show that a process is still running...
 	rl.Prompt.Primary(func() string {
 		if len(commands) > 0 {
@@ -122,13 +141,10 @@ func main() {
 			continue
 		}
 
-		// FANOS
-
 		state, err := term.MakeRaw(descriptor)
 		if err != nil {
 			return
 		}
-
 
 		c := NewCommand(command)
 		go func() {
@@ -163,8 +179,8 @@ func main() {
 		//TODO: err handling
 		r, _ := cancelreader.NewReader(os.Stdin)
 		go func() {
-		  c.wg.Wait()
-		  r.Cancel()
+			c.wg.Wait()
+			r.Cancel()
 		}()
 		for {
 			//_, err := r.Read(buf)
@@ -198,7 +214,7 @@ func updatePrompt(s Shell) {
 	if err != nil {
 		log.Println(err)
 	}
-	prompt = strings.Replace(buf.String(), "\r\n", "", -1) + " $ "
+	prompt = strings.ReplaceAll(buf.String(), "\r\n", "") + " $ "
 }
 
 var runCancel context.CancelFunc = func() {}
