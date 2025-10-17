@@ -17,9 +17,9 @@ import (
 
 	"github.com/creack/pty"
 	//"gopkg.in/alessio/shellescape.v1"
-	"github.com/amenzhinsky/go-memexec"
 )
 
+//go:generate bash ./static-oils.sh
 //go:embed assets/oils-for-unix-static.stripped
 var embeddedOils []byte
 
@@ -39,14 +39,17 @@ func NewFANOSShell() (*FANOSShell, error) {
 	shell := &FANOSShell{}
 	if *fanosShellPath == "" {
 		// Use the mmap and syscall execution method described in the blog post
-		exe, err := memexec.New(embeddedOils)
-		//defer exe.Close()
-
-		if err != nil {
-			return nil, fmt.Errorf("Embedded oils: %w", err)
+		tempDir := os.TempDir()
+		filePath := path.Join(tempDir, "ysh")
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			// Write the embedded binary to a temporary file
+			if err := os.WriteFile(filePath, embeddedOils, 0700); err != nil {
+				return nil, fmt.Errorf("failed to write embedded binary: %w", err)
+			}
+			// Set permissions to make it executable
+			syscall.Chmod(filePath, 0700)
 		}
-		// TODO: Allow selecting ysh or osh!
-		shell.cmd = exe.Command("ysh", "--headless")
+		shell.cmd = exec.Command(filePath, "--headless")
 	} else {
 		shell.cmd = exec.Command(*fanosShellPath, "--headless")
 	}
