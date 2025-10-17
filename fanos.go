@@ -93,13 +93,7 @@ func NewFANOSShell() (*FANOSShell, error) {
 
 // Run calls the FANOS EVAL method
 func (s *FANOSShell) Run(command *Command) error {
-	// To be added before invocation!
-	// TODO: assert there is 1?
-	//defer command.wg.Done()
-
-	command.ctx, runCancel = context.WithCancel(context.Background())
-	// TODO: Cancel!
-	//defer runCancel()
+	defer command.Cancel()
 
 	// ------------------
 	// Setup File Descriptors, read them into `command.stdXXX`
@@ -190,10 +184,7 @@ func (s *FANOSShell) Run(command *Command) error {
 	if err != nil {
 		return err
 	}
-	//log.Println(msg)
-	//log.Println("Command is done")
-	//log.Println(command.Id)
-	command.wg.Done()
+	command.Done()
 
 	return nil
 }

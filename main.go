@@ -139,7 +139,7 @@ func main() {
 		}()
 		runningCommands.Add(1)
 		go func() {
-			c.wg.Wait()
+			c.Wait()
 			runningCommands.Add(-1)
 		}()
 		commands = append(commands, c)
@@ -148,13 +148,13 @@ func main() {
 		size, _ := pty.GetsizeFull(os.Stdin)
 		pty.Setsize(c.Stdin(), size)
 		go func() {
-			_, err := io.Copy(os.Stdout, c.stdout.Reader())
+			_, err := io.Copy(os.Stdout, c.Stdout())
 			if err != nil {
 				log.Println(err)
 			}
 		}()
 		go func() {
-			_, err := io.Copy(os.Stderr, c.stderr.Reader())
+			_, err := io.Copy(os.Stderr, c.Stderr())
 			if err != nil {
 				log.Println(err)
 			}
