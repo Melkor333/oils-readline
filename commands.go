@@ -16,7 +16,7 @@ type Command struct {
 	err error
 	//Id                     int
 	ctx            context.Context
-	cancel         context.CancelFunc
+	Cancel         context.CancelFunc
 	stdinMu        sync.Mutex
 	stdin          *os.File
 	stdout, stderr *multireader.Buffer
@@ -29,6 +29,7 @@ func NewCommand(commandLine string) *Command {
 	var command *Command = new(Command)
 	// check errors
 	command.CommandLine = commandLine
+	command.ctx, command.Cancel = context.WithCancel(context.Background())
 	command.wg = new(sync.WaitGroup)
 	command.wg.Add(1)
 	// TODO: somethingsomething TeeReader...?
@@ -50,6 +51,22 @@ func (c *Command) Stdin() *os.File {
 	c.stdinMu.Lock()
 	defer c.stdinMu.Unlock()
 	return c.stdin
+}
+
+func (c *Command) Stdout() io.Reader {
+	return c.stdout.Reader()
+}
+
+func (c *Command) Stderr() io.Reader {
+	return c.stderr.Reader()
+}
+
+func (c *Command) Wait() {
+	c.wg.Wait()
+}
+
+func (c *Command) Done() {
+	c.wg.Done()
 }
 
 func (c *Command) StdIO(stdin *os.File, stdout *os.File, stderr io.Reader) {

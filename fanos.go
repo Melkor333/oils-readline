@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"bufio"
 	"bytes"
 	"context"
@@ -12,13 +13,18 @@ import (
 	"path"
 	"strconv"
 	"syscall"
+	_ "embed"
 
 	"github.com/creack/pty"
 	//"gopkg.in/alessio/shellescape.v1"
 )
 
+//go:generate bash ./static-oils.sh
+//go:embed assets/oils-for-unix-static.stripped
+var embeddedOils []byte
+
 var (
-	fanosShellPath = flag.String("oil_path", "/usr/bin/oil", "Path to Oil shell interpreter")
+	fanosShellPath = flag.String("oil_path", "", "Path to Oil shell interpreter")
 	fifo           = flag.Bool("fifo", false, "Use named fifo instead of anonymous pipe")
 )
 
@@ -31,11 +37,26 @@ type FANOSShell struct {
 
 func NewFANOSShell() (*FANOSShell, error) {
 	shell := &FANOSShell{}
-	shell.cmd = exec.Command(*fanosShellPath, "--headless")
+	if *fanosShellPath == "" {
+		// Use the mmap and syscall execution method described in the blog post
+		tempDir := os.TempDir()
+		filePath := path.Join(tempDir, "ysh")
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			// Write the embedded binary to a temporary file
+			if err := os.WriteFile(filePath, embeddedOils, 0700); err != nil {
+				return nil, fmt.Errorf("failed to write embedded binary: %w", err)
+			}
+			// Set permissions to make it executable
+			syscall.Chmod(filePath, 0700)
+		}
+		shell.cmd = exec.Command(filePath, "--headless")
+	} else {
+		shell.cmd = exec.Command(*fanosShellPath, "--headless")
+	}
 
 	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't create socketpair: %w", err)
 	}
 	shell.socket = os.NewFile(uintptr(fds[0]), "fanos_client")
 	server := os.NewFile(uintptr(fds[1]), "fanos_server")
@@ -72,13 +93,7 @@ func NewFANOSShell() (*FANOSShell, error) {
 
 // Run calls the FANOS EVAL method
 func (s *FANOSShell) Run(command *Command) error {
-	// To be added before invocation!
-	// TODO: assert there is 1?
-	//defer command.wg.Done()
-
-	command.ctx, runCancel = context.WithCancel(context.Background())
-	// TODO: Cancel!
-	//defer runCancel()
+	defer command.Cancel()
 
 	// ------------------
 	// Setup File Descriptors, read them into `command.stdXXX`
@@ -169,10 +184,7 @@ func (s *FANOSShell) Run(command *Command) error {
 	if err != nil {
 		return err
 	}
-	//log.Println(msg)
-	//log.Println("Command is done")
-	//log.Println(command.Id)
-	command.wg.Done()
+	command.Done()
 
 	return nil
 }
