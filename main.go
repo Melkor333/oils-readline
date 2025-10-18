@@ -65,6 +65,7 @@ type CompletionResult struct {
 type Shell interface {
 	//StdIO(*os.File, *os.File, *os.File) error
 	Run(*Command) error
+	Cancel()
 	Complete(context.Context, CompletionReq) (*CompletionResult, error)
 	Dir() string
 }
@@ -82,6 +83,8 @@ func main() {
 	commands = make([]*Command, 0)
 
 	shell, err = NewFANOSShell()
+	defer shell.Cancel()
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -133,6 +136,9 @@ func main() {
 		// readline
 		command, err = rl.Readline()
 		if err != nil {
+			if err == io.EOF {
+				return
+			}
 			log.Println(err)
 		}
 

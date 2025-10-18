@@ -30,13 +30,24 @@ var (
 
 type FANOSShell struct {
 	cmd    *exec.Cmd
+	cancel  context.CancelFunc
 	socket *os.File
 
 	in, out, err *os.File
 }
 
+func (s *FANOSShell) Cancel() {
+	s.cancel()
+	s.in.Close()
+	s.out.Close()
+	s.err.Close()
+	s.cmd.Wait()
+}
+
 func NewFANOSShell() (*FANOSShell, error) {
 	shell := &FANOSShell{}
+	var ctx context.Context
+	ctx, shell.cancel = context.WithCancel(context.Background())
 	if *fanosShellPath == "" {
 		// Use the mmap and syscall execution method described in the blog post
 		tempDir := os.TempDir()
@@ -46,12 +57,13 @@ func NewFANOSShell() (*FANOSShell, error) {
 			if err := os.WriteFile(filePath, embeddedOils, 0700); err != nil {
 				return nil, fmt.Errorf("failed to write embedded binary: %w", err)
 			}
+			defer os.Remove(filePath)
 			// Set permissions to make it executable
 			syscall.Chmod(filePath, 0700)
 		}
-		shell.cmd = exec.Command(filePath, "--headless")
+		shell.cmd = exec.CommandContext(ctx, filePath, "--headless")
 	} else {
-		shell.cmd = exec.Command(*fanosShellPath, "--headless")
+		shell.cmd = exec.CommandContext(ctx, *fanosShellPath, "--headless")
 	}
 
 	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
