@@ -15,28 +15,32 @@
 package main
 
 import (
+	//"bytes"
 	"context"
 	"os"
-	"strconv"
+	//"strconv"
 	"sync/atomic"
-	//"fmt"
-	"encoding/json"
+	"fmt"
+	//"encoding/json"
 	"flag"
-	// blatant copy reeflective/readline :')
-	"github.com/Melkor333/oils-readline/internal/term"
-	"github.com/muesli/cancelreader"
-	"github.com/reeflective/readline"
+	//"github.com/knz/bubbline"
+	"github.com/knz/bubbline/editline"
+	tea "github.com/charmbracelet/bubbletea"
+	//"github.com/Melkor333/oils-readline/internal/term"
+	//"github.com/muesli/cancelreader"
+	//"github.com/reeflective/readline"
 	// TODO: should be in a module ;)
-	"github.com/creack/pty"
+	//"github.com/creack/pty"
 	"io"
 	"log"
-	"net/http"
-	"path/filepath"
+	//"net/http"
+	//"path/filepath"
+	//"errors"
+	//"fmt"
 	"strings"
 )
 
 var (
-	shell       Shell
 	historyFile = flag.String("historyFile", "$HOME/.local/share/oils/readline-history.json", "Path to the history file")
 )
 
@@ -70,148 +74,249 @@ type Shell interface {
 	Dir() string
 }
 
-var commands []*Command
-var prompt string
-var runningCommands *atomic.Int64
+type model struct {
+	shell Shell
+	rl *editline.Model
+	prompt string
+	commands []*Command
+	runningCommands *atomic.Int64
+}
 
-func main() {
-	var err error
-	var command string
-	flag.Parse()
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
-	commands = make([]*Command, 0)
-
-	shell, err = NewFANOSShell()
-	defer shell.Cancel()
-
+func newModel() model {
+	s, err := NewFANOSShell()
 	if err != nil {
 		log.Fatal(err)
 	}
+	//defer shell.Cancel()
 
-	rl := readline.NewShell()
-	if err != nil {
-		log.Fatal(err)
-	}
-	var h string
-	if !strings.HasPrefix(*historyFile, "$HOME") {
-		h = *historyFile
-	} else {
-		c, err := os.UserHomeDir()
-		if err == nil {
-			h = c + "/.local/share/oils/history.json"
-		}
-	}
-	os.MkdirAll(filepath.Dir(h), os.ModePerm)
-	rl.History.AddFromFile("history", h)
+	// TODO: resize?!
+	rl := editline.New(80, 5)
+	rl.Prompt = getPrompt(s)
 
-	// Show that a process is still running...
-	rl.Prompt.Primary(func() string {
-		if len(commands) > 0 {
-			n := runningCommands.Load()
-			if n > 0 {
-				return ">" + strconv.FormatInt(n, 10) + " " + prompt
-			}
-
-		}
-		return prompt
-	})
-	// TODOS:
-	// defaults for inputrc from console
-	// handle interrupts like EOF!
-	// put output stderr in the hints?
-	// Autocomplete
-	// Highlight bash -> pygments (if `osh...?`
-	// LONGTERM:
-	// go back to recent command/cycle through/search, etc.
-
-	runningCommands = new(atomic.Int64)
+	runningCommands := new(atomic.Int64)
 	runningCommands.Store(0)
-	updatePrompt(shell)
-	descriptor := int(os.Stdin.Fd())
-	state, _ := term.GetState(descriptor)
-	term.Restore(descriptor, state)
-	defer term.Restore(descriptor, state)
-	for {
-		// readline
-		command, err = rl.Readline()
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			log.Println(err)
-		}
 
-		// TODO: Copy isEmpty() function from reeflective/console
-		if command == "" || command == "\n" {
-			continue
-		}
 
-		state, err := term.MakeRaw(descriptor)
-		if err != nil {
-			return
-		}
-
-		c := NewCommand(command)
-		go func() {
-			err = shell.Run(c)
-			if err != nil {
-				log.Println(err)
-			}
-		}()
-		runningCommands.Add(1)
-		go func() {
-			c.Wait()
-			runningCommands.Add(-1)
-		}()
-		commands = append(commands, c)
-
-		// TODO: capture resizes
-		size, _ := pty.GetsizeFull(os.Stdin)
-		pty.Setsize(c.Stdin(), size)
-		go func() {
-			_, err := io.Copy(os.Stdout, c.Stdout())
-			if err != nil {
-				log.Println(err)
-			}
-		}()
-		go func() {
-			_, err := io.Copy(os.Stderr, c.Stderr())
-			if err != nil {
-				log.Println(err)
-			}
-		}()
-
-		//TODO: err handling
-		r, _ := cancelreader.NewReader(os.Stdin)
-		go func() {
-			c.wg.Wait()
-			r.Cancel()
-		}()
-		for {
-			//_, err := r.Read(buf)
-			_, err := io.Copy(c.Stdin(), r)
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				break
-				//log.Println(err)
-			}
-		}
-
-		term.Restore(descriptor, state)
-		updatePrompt(shell)
-		//out.wg.Done()
-		//_, err = rl.Printf(out.Stdout)
-		//if err != nil {
-		//	log.Println(err)
-		//}
+	return model{
+		shell: s,
+		rl: rl,
+		runningCommands: runningCommands,
 	}
 
 }
 
-func updatePrompt(s Shell) {
+func (m model) Init() tea.Cmd {
+	return m.rl.Init()
+}
+
+func (m model) View() string {
+	return m.rl.View()
+}
+
+func (m model) Update (msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Read a line of input using the widget.
+	//val, err := rl.GetLine()
+	switch msg.(type) {
+
+		// Is it a key press?
+	case editline.InputCompleteMsg:
+		c := NewCommand(m.rl.Value())
+		err := m.shell.Run(c)
+		if err != nil {
+			log.Println(err)
+		}
+		buf := new(strings.Builder)
+		io.Copy(buf, c.Stdout())
+		fmt.Println(buf.String())
+		m.rl.Reset()
+		return m, nil
+	}
+	_, cmd := m.rl.Update(msg)
+
+	// Handle the end of input.
+	//if err != nil {
+	//	if err == io.EOF {
+	//		// No more input.
+	//		break
+	//	}
+	//	if errors.Is(err, bubbline.ErrInterrupted) {
+	//		// Entered Ctrl+C to cancel input.
+	//		fmt.Println("^C")
+	//		continue
+	//	} else if errors.Is(err, bubbline.ErrTerminated) {
+	//		fmt.Println("terminated")
+	//		return
+	//	} else {
+	//		fmt.Println("error:", err)
+	//	}
+	//	continue
+	//}
+	return m, cmd
+
+	// Handle regular input.
+	//fmt.Printf("\nYou have entered: %q\n", val)
+	//	c := NewCommand(command)
+	//	go func() {
+	//		err = shell.Run(c)
+	//		if err != nil {
+	//			log.Println(err)
+	//		}
+	//	}()
+	//	runningCommands.Add(1)
+	//	go func() {
+	//		c.Wait()
+	//		runningCommands.Add(-1)
+	//	}()
+	//	commands = append(commands, c)
+
+	//	// TODO: capture resizes
+	//	size, _ := pty.GetsizeFull(os.Stdin)
+	//	pty.Setsize(c.Stdin(), size)
+	//m.rl.AddHistory(val)
+}
+
+func main() {
+	flag.Parse()
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	p := tea.NewProgram(newModel())
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("Alas, there's been an error: %v", err)
+		os.Exit(1)
+	}
+}
+
+//func main() {
+//	//var command string
+//	flag.Parse()
+//	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+
+//rl := readline.NewShell()
+//if err != nil {
+//	log.Fatal(err)
+//}
+
+//var h string
+//if !strings.HasPrefix(*historyFile, "$HOME") {
+//	h = *historyFile
+//} else {
+//	c, err := os.UserHomeDir()
+//	if err == nil {
+//		h = c + "/.local/share/oils/history.json"
+//	}
+//}
+//os.MkdirAll(filepath.Dir(h), os.ModePerm)
+//rl.History.AddFromFile("history", h)
+
+//////////////
+
+// Show that a process is still running...
+//rl.Prompt.Primary(func() string {
+//	if len(commands) > 0 {
+//		n := runningCommands.Load()
+//		if n > 0 {
+//			return ">" + strconv.FormatInt(n, 10) + " " + prompt
+//		}
+
+//	}
+//	return prompt
+//})
+// TODOS:
+// defaults for inputrc from console
+// handle interrupts like EOF!
+// put output stderr in the hints?
+// Autocomplete
+// Highlight bash -> pygments (if `osh...?`
+// LONGTERM:
+// go back to recent command/cycle through/search, etc.
+
+//TODO: Store/reset state?
+//descriptor := int(os.Stdin.Fd())
+//state, _ := term.GetState(descriptor)
+//term.Restore(descriptor, state)
+//defer term.Restore(descriptor, state)
+
+//for {
+//	// readline
+//	command, err = rl.Readline()
+//	if err != nil {
+//		if err == io.EOF {
+//			return
+//		}
+//		log.Println(err)
+//	}
+
+//	// TODO: Copy isEmpty() function from reeflective/console
+//	if command == "" || command == "\n" {
+//		continue
+//	}
+
+//	state, err := term.MakeRaw(descriptor)
+//	if err != nil {
+//		return
+//	}
+
+//	c := NewCommand(command)
+//	go func() {
+//		err = shell.Run(c)
+//		if err != nil {
+//			log.Println(err)
+//		}
+//	}()
+//	runningCommands.Add(1)
+//	go func() {
+//		c.Wait()
+//		runningCommands.Add(-1)
+//	}()
+//	commands = append(commands, c)
+
+//	// TODO: capture resizes
+//	size, _ := pty.GetsizeFull(os.Stdin)
+//	pty.Setsize(c.Stdin(), size)
+//	go func() {
+//		_, err := io.Copy(os.Stdout, c.Stdout())
+//		if err != nil {
+//			log.Println(err)
+//		}
+//	}()
+//	go func() {
+//		_, err := io.Copy(os.Stderr, c.Stderr())
+//		if err != nil {
+//			log.Println(err)
+//		}
+//	}()
+
+//	//TODO: err handling
+//	r, _ := cancelreader.NewReader(os.Stdin)
+//	go func() {
+//		c.wg.Wait()
+//		r.Cancel()
+//	}()
+//	for {
+//		//_, err := r.Read(buf)
+//		_, err := io.Copy(c.Stdin(), r)
+//		if err != nil {
+//			if err == io.EOF {
+//				break
+//			}
+//			break
+//			//log.Println(err)
+//		}
+//	}
+
+//	term.Restore(descriptor, state)
+//	updatePrompt(shell)
+//	//out.wg.Done()
+//	//_, err = rl.Printf(out.Stdout)
+//	//if err != nil {
+//	//	log.Println(err)
+//	//}
+//}
+
+//}
+
+func getPrompt(shell Shell) string {
 	command := NewCommand("pwd | sed \"s|$[ENV.HOME]|~|\"")
 	shell.Run(command)
 	command.wg.Wait()
@@ -220,7 +325,7 @@ func updatePrompt(s Shell) {
 	if err != nil {
 		log.Println(err)
 	}
-	prompt = strings.ReplaceAll(buf.String(), "\r\n", "") + " $ "
+	return strings.ReplaceAll(buf.String(), "\r\n", "") + " $ "
 }
 
 var runCancel context.CancelFunc = func() {}
@@ -237,39 +342,39 @@ var runCancel context.CancelFunc = func() {}
 //	}
 //}
 
-var compCancel context.CancelFunc = func() {}
-
-func HandleComplete(w http.ResponseWriter, req *http.Request) {
-	var compReq CompletionReq
-	err := json.NewDecoder(req.Body).Decode(&compReq)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	if compCancel != nil {
-		compCancel()
-	}
-	var compCtx context.Context
-
-	compCtx, compCancel = context.WithCancel(context.Background())
-	defer runCancel()
-
-	out, err := shell.Complete(compCtx, compReq)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	o, err := json.Marshal(out)
-	if err != nil {
-		log.Println(err)
-	}
-	_, err = w.Write(o)
-	if err != nil {
-		log.Println(err)
-	}
-}
-
-func HandleCancel(w http.ResponseWriter, req *http.Request) {
-	log.Print("Received cancel")
-	runCancel()
-}
+//var compCancel context.CancelFunc = func() {}
+//
+//func HandleComplete(w http.ResponseWriter, req *http.Request) {
+//	var compReq CompletionReq
+//	err := json.NewDecoder(req.Body).Decode(&compReq)
+//	if err != nil {
+//		log.Println(err)
+//		return
+//	}
+//	if compCancel != nil {
+//		compCancel()
+//	}
+//	var compCtx context.Context
+//
+//	compCtx, compCancel = context.WithCancel(context.Background())
+//	defer runCancel()
+//
+//	out, err := shell.Complete(compCtx, compReq)
+//	if err != nil {
+//		log.Println(err)
+//		return
+//	}
+//	o, err := json.Marshal(out)
+//	if err != nil {
+//		log.Println(err)
+//	}
+//	_, err = w.Write(o)
+//	if err != nil {
+//		log.Println(err)
+//	}
+//}
+//
+//func HandleCancel(w http.ResponseWriter, req *http.Request) {
+//	log.Print("Received cancel")
+//	runCancel()
+//}
