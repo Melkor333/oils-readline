@@ -1,5 +1,7 @@
 # Oils-readline
 
+![A gif with a presentation of the readline](./demo.gif)
+
 Proof-of-concept [oils](https://oils.pub/) readline as a separate process.
 
 It makes use of [Oils Headless mode](https://oils.pub/release/latest/doc/headless.html) which means that every executed command receives a separate Stdin, stdout and stderr.

@@ -28,7 +28,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	//"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/bubbles/viewport"
-	"github.com/muesli/reflow/wrap"
+	//"github.com/muesli/reflow/wrap"
 	//"github.com/Melkor333/oils-readline/internal/term"
 	//"github.com/muesli/cancelreader"
 	//"github.com/reeflective/readline"
@@ -104,6 +104,7 @@ type model struct {
 	Height          int
 	Width           int
 	execType        ExecType
+	lastLength      int
 	// state           State
 }
 
@@ -116,6 +117,7 @@ func newModel(e ExecType) model {
 	// TODO: resize?!
 	rl := editline.New(80, 1)
 	rl.Prompt = getPrompt(s)
+	rl.Reset()
 
 	runningCommands := new(atomic.Int64)
 	runningCommands.Store(0)
@@ -176,7 +178,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Height = msg.Height
 		m.Width = msg.Width
 		// TODO: this 5 is random. but it seems to do nothing anyways. Confusing!
-		m.rl.SetSize(msg.Width, 5)
+		m.rl.MaxHeight = msg.Height
+		m.rl.MaxWidth = msg.Width
 
 	case editline.InputCompleteMsg:
 		//TODO: Other exec types
@@ -198,8 +201,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
 		// Doesn't work with tea.Printf :(
-		// Go to previous line
-		fmt.Printf("\033[1F")
+		// cleanup last readline
+		for range m.lastLength {
+			fmt.Printf("\033[1A\033[2K")
+		}
+		//fmt.Printf("\033[1F")
 		// Print blured with short help
 		fmt.Printf(m.rl.View())
 		// Go to beginning of help line, remove until end of screen
@@ -211,14 +217,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rl.Focus()
 		m.commands = append(m.commands, msg)
 		m.lastCommand = msg
-		buf := wrap.NewWriter(m.Width)
+		//buf := wrap.NewWriter(m.Width)
 
-		_, err := io.Copy(buf, m.lastCommand.Stdout())
-		if err != nil {
-			log.Println(err)
-		}
-		m.commandView = viewport.New(m.Width, m.Height-20)
-		m.commandView.SetContent(buf.String())
+		//_, err := io.Copy(buf, m.lastCommand.Stdout())
+		//if err != nil {
+		//	log.Println(err)
+		//}
+		//m.commandView = viewport.New(m.Width, m.Height-20)
+		//m.commandView.SetContent(buf.String())
+		m.rl.Prompt = getPrompt(m.shell)
 		m.rl.Reset()
 		return m, nil
 	default:
@@ -226,6 +233,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// pass to readline if nothing else
 	_, cmd := m.rl.Update(msg)
+	m.lastLength = strings.Count(m.rl.View(), "\n")
 	return m, cmd
 }
 

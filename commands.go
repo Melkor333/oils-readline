@@ -73,14 +73,18 @@ func (c *Command) Done() {
 func (c *Command) StdIO(stdin *os.File, stdout *os.File, stderr io.Reader) {
 	// stdout
 	c.stdin = stdin
+	c.wg.Add(1)
 	go func() {
 		defer c.stdout.Close()
+		defer c.wg.Done()
 		io.Copy(c.stdout, stdout)
 	}()
 
 	// stderr
+	c.wg.Add(1)
 	go func() {
 		defer c.stderr.Close()
+		defer c.wg.Done()
 		io.Copy(c.stderr, stderr)
 	}()
 }
