@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION=0.34.0
+VERSION=0.36.0
 
 # Step 1: Set up a working directory
 WORKDIR=$(mktemp -d) # Use mktemp to create a temporary directory

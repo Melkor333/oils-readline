@@ -5,20 +5,28 @@ Proof-of-concept [oils](https://oils.pub/) readline as a separate process.
 It makes use of [Oils Headless mode](https://oils.pub/release/latest/doc/headless.html) which means that every executed command receives a separate Stdin, stdout and stderr.
 This is combined with [reeflective/readline](https://github.com/reeflective/readline) which provides a clean readline interface.
 
-This allows us to have golang tool to handle user input, but forward inputs for commands cleanly to them.
-We know exactly what output comes from which command.
+This allows us to have a golang tool to handle user input, but forward inputs for commands cleanly to them.
+We know exactly what output comes from which command. Stderr is separate from the stdout.
 We can manage IO for "background" processes completely independently.
 We can forward output to any other program we like.
 
-# Build and run
+## Build and run
+`
 Build with:
+
 ```shell
+# Create a static oils to be embedded
+go generate
+# If building the static oils fails, you can also do this and use an oils from the environment:
+#mkdir -p assets && touch assets/oils-for-unix-static.stripped
+
 go build
 ```
 
-Run (depends on oils, currently not builtin. [TODO](https://web.archive.org/web/20220509043908/https://0xcf9.org/2021/06/22/embed-and-execute-from-memory-with-golang/)):
+Run:
 
 ```shell
+./oils-readline # uses embedded oils
 # Bash-like
 ./oils-readline -oil_path $(which osh)
 # New YSH

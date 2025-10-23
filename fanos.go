@@ -1,11 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"bufio"
 	"bytes"
 	"context"
+	_ "embed"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -13,10 +14,6 @@ import (
 	"path"
 	"strconv"
 	"syscall"
-	_ "embed"
-
-	"github.com/creack/pty"
-	//"gopkg.in/alessio/shellescape.v1"
 )
 
 //go:generate bash ./static-oils.sh
@@ -30,7 +27,7 @@ var (
 
 type FANOSShell struct {
 	cmd    *exec.Cmd
-	cancel  context.CancelFunc
+	cancel context.CancelFunc
 	socket *os.File
 
 	in, out, err *os.File
@@ -104,74 +101,28 @@ func NewFANOSShell() (*FANOSShell, error) {
 //}
 
 // Run calls the FANOS EVAL method
-func (s *FANOSShell) Run(command *Command) error {
-	defer command.Cancel()
-
+func (s *FANOSShell) Run(command string, stdin, stdout, stderr *os.File) error {
 	// ------------------
 	// Setup File Descriptors, read them into `command.stdXXX`
 	// ------------------
 
 	// TODO: should be set via an API?
 	// TODO: should createCommand be big?
-
-	ptmx, tty, err := pty.Open()
-	if err != nil {
-		log.Println(err)
-		// TODO: update the command.status to "failed" and don't return an error
-		// TODO: Should be done with all returns here
-		return err
-	}
+	//var ptmx, tty *os.File
+	var err error
 	defer func() {
-		ptmx.Close()
-		tty.Close()
+		stdin.Close()
+		stdout.Close()
+		stderr.Close()
 	}()
-
-	var _stderr, rdPipe *os.File
-	// Open a fifo for stderr
-	if *fifo {
-		dir := os.TempDir()
-		pipeName := path.Join(dir, "errpipe")
-		syscall.Mkfifo(pipeName, 0600)
-		// If you open only the read side, then you need to open with O_NONBLOCK
-		// and clear that flag after opening.
-		//	pipe, err := os.OpenFile(pipeName, os.O_RDONLY|syscall.O_NONBLOCK, 0600)
-		_stderr, err = os.OpenFile(pipeName, os.O_RDWR, 0600)
-		// read/write are the same for FIFOs
-		rdPipe = _stderr
-		//log.Println(int(_stderr.Fd()))
-		if err != nil {
-			log.Println(err)
-			return err
-		}
-		defer func() {
-			_stderr.Close()
-			os.Remove(pipeName)
-			os.Remove(dir)
-		}()
-	} else {
-		rdPipe, _stderr, err = os.Pipe()
-		//log.Println(int(_stderr.Fd()))
-		if err != nil {
-			log.Println(err)
-			return err
-		}
-		defer func() {
-			rdPipe.Close()
-			_stderr.Close()
-		}()
-	}
 
 	// ------------------
 	// Send command and FDs via FANOS
 	// ------------------
-	rights := syscall.UnixRights(int(tty.Fd()), int(tty.Fd()), int(_stderr.Fd()))
-	command.StdIO(
-		ptmx,
-		ptmx,
-		rdPipe)
+	rights := syscall.UnixRights(int(stdin.Fd()), int(stdout.Fd()), int(stderr.Fd()))
 	var buf bytes.Buffer
 	buf.WriteString("EVAL ")
-	buf.WriteString(command.CommandLine)
+	buf.WriteString(command)
 	// Send command per Netstring
 	_, err = s.socket.Write([]byte(strconv.Itoa(buf.Len()) + ":"))
 	if err != nil {
@@ -196,8 +147,6 @@ func (s *FANOSShell) Run(command *Command) error {
 	if err != nil {
 		return err
 	}
-	command.Done()
-
 	return nil
 }
 
