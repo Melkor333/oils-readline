@@ -5,7 +5,7 @@
 Proof-of-concept [oils](https://oils.pub/) readline as a separate process.
 
 It makes use of [Oils Headless mode](https://oils.pub/release/latest/doc/headless.html) which means that every executed command receives a separate Stdin, stdout and stderr.
-This is combined with [reeflective/readline](https://github.com/reeflective/readline) which provides a clean readline interface.
+This is combined with [charms bubbletea](https://github.com/charmbracelet/bubbletea) TUI framework and [bubbline](https://pkg.go.dev/github.com/chalk-ai/bubbline) which provides a clean readline interface.
 
 This allows us to have a golang tool to handle user input, but forward inputs for commands cleanly to them.
 We know exactly what output comes from which command. Stderr is separate from the stdout.
