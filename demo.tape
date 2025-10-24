@@ -70,11 +70,12 @@ Set Height 600
 Hide
 
 # For some reason the second input after startup is fucked up... :(
+
 Type "./oils-readline -oil_path $(which ysh)" Enter Enter Enter
 
 Type "cd" Enter
 
-Ctrl+l
+Ctrl+l Enter
 
 Show
 
@@ -82,7 +83,9 @@ Type "# Welcome to Oils-Readline!" Sleep 500ms  Enter
 
 Type "# It is a shell with a readline just as you are used to" Sleep 500ms  Enter
 
-Type "# But the stdin, stdout and stderr of each command executed are completely separate!" Sleep 1s  Enter
+# we need to echo strings longer than a line :(
+# bubbline will remove it otherwise
+Type "echo But the stdin, stdout and stderr of each command executed are completely separate!" Sleep 1s  Enter
 
 Type "# This is work in progress, so this does not show yet" Sleep 500ms  Enter
 

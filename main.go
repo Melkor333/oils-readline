@@ -104,7 +104,7 @@ type model struct {
 	Height          int
 	Width           int
 	execType        ExecType
-	lastLength      int
+	lastLines       int
 	// state           State
 }
 
@@ -177,15 +177,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Height = msg.Height
 		m.Width = msg.Width
-		// TODO: this 5 is random. but it seems to do nothing anyways. Confusing!
-		m.rl.MaxHeight = msg.Height
-		m.rl.MaxWidth = msg.Width
+		m.rl.SetSize(m.Width, m.Height)
+		m.rl.Reset()
 
 	case editline.InputCompleteMsg:
 		//TODO: Other exec types
 		//if m.execType == Blocking
+		command := m.rl.Value()
+
 		size, _ := pty.GetsizeFull(os.Stdin)
-		cmd, fallback, err := NewLegacyCmd(m.rl.Value(), m.shell, size)
+		cmd, fallback, err := NewLegacyCmd(command, m.shell, size)
 		if err != nil {
 			log.Fatal("Can't create new Command!", err)
 		}
@@ -202,7 +203,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
 		// Doesn't work with tea.Printf :(
 		// cleanup last readline
-		for range m.lastLength {
+		for range m.lastLines {
 			fmt.Printf("\033[1A\033[2K")
 		}
 		//fmt.Printf("\033[1F")
@@ -233,7 +234,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// pass to readline if nothing else
 	_, cmd := m.rl.Update(msg)
-	m.lastLength = strings.Count(m.rl.View(), "\n")
+	m.lastLines = strings.Count(m.rl.View(), "\n")
 	return m, cmd
 }
 
