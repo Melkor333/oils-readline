@@ -105,6 +105,7 @@ type model struct {
 	Width           int
 	execType        ExecType
 	lastLines       int
+	highlighter     Highlighter
 	// state           State
 }
 
@@ -118,6 +119,7 @@ func newModel(e ExecType) model {
 	rl := editline.New(80, 1)
 	rl.Prompt = getPrompt(s)
 	rl.Reset()
+	rl.Highlighter = NewHighlighter().Highlight
 
 	runningCommands := new(atomic.Int64)
 	runningCommands.Store(0)
