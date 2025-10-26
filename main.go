@@ -197,6 +197,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Sequence(tea.ExitAltScreen, tea.Exec(cmd, fallback), tea.EnterAltScreen)
 		}
 		m.rl.Blur()
+		m.rl.AddHistoryEntry(command)
 		m.rl.Update(msg)
 
 		// TODO: The following stuff should be printed by the `cmd` before executing the process :)
