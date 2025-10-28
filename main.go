@@ -18,14 +18,17 @@ import (
 	//"bytes"
 	"context"
 	"os"
+
 	//"strconv"
 	"fmt"
 	"sync/atomic"
+
 	//"encoding/json"
 	"flag"
 	//"github.com/knz/bubbline"
 	"github.com/chalk-ai/bubbline/editline"
 	tea "github.com/charmbracelet/bubbletea"
+
 	//"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/bubbles/viewport"
 	//"github.com/muesli/reflow/wrap"
@@ -33,9 +36,11 @@ import (
 	//"github.com/muesli/cancelreader"
 	//"github.com/reeflective/readline"
 	// TODO: should be in a module ;)
-	"github.com/creack/pty"
 	"io"
 	"log"
+
+	"github.com/creack/pty"
+
 	//"net/http"
 	//"path/filepath"
 	//"errors"
@@ -43,7 +48,10 @@ import (
 	"strings"
 )
 
+var version = "devel"
+
 var (
+	versionFlag = flag.Bool("version", false, "Print version and exit")
 	historyFile = flag.String("historyFile", "$HOME/.local/share/oils/readline-history.json", "Path to the history file")
 )
 
@@ -254,6 +262,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func main() {
 	flag.Parse()
+
+	if versionFlag != nil && *versionFlag {
+		fmt.Printf("Oils-Readline version: %s\n", version)
+		os.Exit(0)
+	}
+
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	model := newModel(Blocking)
 	defer model.shell.Cancel()
