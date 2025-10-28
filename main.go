@@ -73,7 +73,7 @@ type Shell interface {
 	//StdIO(*os.File, *os.File, *os.File) error
 	Run(cmd string, ptmx, tty, stderr *os.File) error
 	Cancel()
-	Complete(context.Context, CompletionReq) (*CompletionResult, error)
+	Complete([][]rune, int, int) (string, editline.Completions)
 	Dir() string
 }
 
@@ -116,8 +116,15 @@ func newModel(e ExecType) model {
 	}
 
 	// TODO: resize?!
-	rl := editline.New(80, 1)
+	rl := editline.New(80, 20)
 	rl.Prompt = getPrompt(s)
+	rl.AutoComplete = s.Complete
+	//func(entireInput [][]rune, line, col int) (msg string, comp editline.Completions) {
+	//	log.Println(entireInput, line, col)
+	//	log.Println("\n\n\n\n\n")
+	//	return "", editline.SimpleWordsCompletion([]string{"hello world", "goobye world"}, "hello", 3, line, col)
+	//}
+
 	rl.Reset()
 	rl.Highlighter = NewHighlighter().Highlight
 
@@ -179,7 +186,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Height = msg.Height
 		m.Width = msg.Width
-		m.rl.SetSize(m.Width, m.Height)
+		m.rl.SetSize(m.Width, m.Height-20)
 		m.rl.Reset()
 
 	case editline.InputCompleteMsg:

@@ -7,12 +7,15 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
+	"github.com/chalk-ai/bubbline/computil"
+	"github.com/chalk-ai/bubbline/editline"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -154,8 +157,48 @@ func (s *FANOSShell) Dir() string {
 	return ""
 }
 
-func (s *FANOSShell) Complete(ctx context.Context, r CompletionReq) (*CompletionResult, error) {
-	comps := CompletionResult{}
-	comps.To = len(r.Text)
-	return &comps, nil
+func (s *FANOSShell) Complete(input [][]rune, line, col int) (string, editline.Completions) {
+	// Cheap ass lastIndex
+	//var from int
+	//if from := strings.LastIndex(req.Text, " "); from == -1 {
+	//	from = 0
+	//} else {
+	//	from = from + 1
+	//}
+	stdout, stdoutIn, err := os.Pipe()
+	if err != nil {
+		log.Println(err)
+		return "", nil
+	}
+	_, stdin, err := os.Pipe()
+	if err != nil {
+		log.Println(err)
+		return "", nil
+	}
+	stderr, stderrIn, err := os.Pipe()
+
+	if err != nil {
+		log.Println(err)
+		return "", nil
+	}
+	// TODO: Only file completions for now
+	// TODO: escape?
+	word, start, end := computil.FindWord(input, line, col)
+
+	buf := new(strings.Builder)
+	errbu := new(strings.Builder)
+	err = s.Run("compgen -f '"+word+"'", stdin, stdoutIn, stderrIn)
+	if err != nil {
+		log.Println(err)
+		return "", nil
+	}
+	io.Copy(errbu, stderr)
+	io.Copy(buf, stdout)
+	if len(errbu.String()) > 0 {
+		return "", nil
+	}
+
+	completions := strings.Split(buf.String(), "\n")
+	// check if string has \n or ' ' and return first indexof or 0
+	return "", editline.SimpleWordsCompletion(completions[:len(completions)-1], "file", col, start, end)
 }
