@@ -1,0 +1,88 @@
+---
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: default
+    env:
+      - CGO_ENABLED=1  # required by go-tree-sitter-highlight
+    main: "."
+    binary: "{{ .ProjectName }}"
+    ldflags:
+      - -s
+      - -w
+      - -X github.com/Melkor333/oils-readline/main.Version={{ .Version }}
+    flags:
+      - -trimpath
+    goos:
+      - linux
+    goarch:
+      - amd64
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}{{ if .Mips }}-{{ .Mips }}{{ end }}"
+    wrap_in_directory: true
+    ids:
+      - default
+    files:
+      - LICENSE*
+      - README*
+
+checksum:
+  name_template: "checksums.txt"
+
+nfpms:
+  - file_name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}{{ if .Mips }}-{{ .Mips }}{{ end }}"
+    vendor: Melkor333
+    homepage: https://github.com/Melkor333/oils-readline
+    maintainer: Melkor333
+    description: Readline for oils shell
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - termux.deb
+      - apk
+
+source:
+  enabled: true
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-devel"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore"
+      - "merge conflict"
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+      - go mod tidy
+  groups:
+    - title: "💥 Breaking Changes"
+      regexp: "^.*[(\\w)]*!:+.*$"
+      order: 50
+    - title: "🚀 New Features"
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 100
+    - title: "🐛 Bug fixes"
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 200
+    - title: "📦 Dependency updates"
+      regexp: "^.*\\(deps\\)*:+.*$"
+      order: 300
+    - title: "📚 Documentation updates"
+      regexp: "^.*docs[(\\w)]*:+.*$"
+      order: 400
+    - title: "🔧 Other work"
+      order: 9999

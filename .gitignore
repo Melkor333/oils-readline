@@ -5,3 +5,4 @@ lib/inject_tcsetpgrp.so
 .crush
 oils-readline
 assets/*
+dist/*
