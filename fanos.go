@@ -14,6 +14,8 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -158,13 +160,12 @@ func (s *FANOSShell) Dir() string {
 }
 
 func (s *FANOSShell) Complete(input [][]rune, line, col int) (string, editline.Completions) {
-	// Cheap ass lastIndex
-	//var from int
-	//if from := strings.LastIndex(req.Text, " "); from == -1 {
-	//	from = 0
-	//} else {
-	//	from = from + 1
-	//}
+	// TODO: Only file completions for now
+	// TODO: escape?
+	word, start, end := computil.FindWord(input, line, col)
+
+	// All files
+	// TODO: A way to skip directories
 	stdout, stdoutIn, err := os.Pipe()
 	if err != nil {
 		log.Println(err)
@@ -181,24 +182,73 @@ func (s *FANOSShell) Complete(input [][]rune, line, col int) (string, editline.C
 		log.Println(err)
 		return "", nil
 	}
-	// TODO: Only file completions for now
-	// TODO: escape?
-	word, start, end := computil.FindWord(input, line, col)
-
 	buf := new(strings.Builder)
+	var files []string
 	errbu := new(strings.Builder)
 	err = s.Run("compgen -f '"+word+"'", stdin, stdoutIn, stderrIn)
 	if err != nil {
 		log.Println(err)
+		files = []string{}
+	} else {
+		io.Copy(errbu, stderr)
+		io.Copy(buf, stdout)
+		if len(errbu.String()) > 0 {
+			files = []string{}
+
+		} else {
+			files = strings.Split(strings.TrimSpace(buf.String()), "\n")
+		}
+	}
+
+	// dirs
+	stdout, stdoutIn, err = os.Pipe()
+	if err != nil {
+		log.Println(err)
 		return "", nil
 	}
-	io.Copy(errbu, stderr)
-	io.Copy(buf, stdout)
-	if len(errbu.String()) > 0 {
+	_, stdin, err = os.Pipe()
+	if err != nil {
+		log.Println(err)
+		return "", nil
+	}
+	stderr, stderrIn, err = os.Pipe()
+
+	if err != nil {
+		log.Println(err)
 		return "", nil
 	}
 
-	completions := strings.Split(buf.String(), "\n")
-	// check if string has \n or ' ' and return first indexof or 0
-	return "", editline.SimpleWordsCompletion(completions[:len(completions)-1], "file", col, start, end)
+	var dirs []string
+	buf = new(strings.Builder)
+	errbu = new(strings.Builder)
+	err = s.Run("compgen -d '"+word+"'", stdin, stdoutIn, stderrIn)
+	if err != nil {
+		log.Println(err)
+		dirs = []string{}
+	} else {
+		io.Copy(errbu, stderr)
+		io.Copy(buf, stdout)
+		if len(errbu.String()) > 0 {
+			dirs = []string{}
+		} else {
+			dirs = strings.Split(strings.TrimSpace(buf.String()), "\n")
+		}
+	}
+	for i, d := range dirs {
+		// remove dirs from files
+		if len(files) > 0 {
+			if i := slices.Index(files, d); i >= 0 {
+				files[i] = files[len(files)-1]
+				files = files[:len(files)-1]
+			}
+		}
+		dirs[i] = d + "/"
+	}
+	if len(files) > 0 {
+		dirs = append(dirs, files...)
+	}
+	// Sort case insensitive
+	sort.Slice(dirs, func(i, j int) bool { return strings.ToLower(dirs[i]) < strings.ToLower(dirs[j]) })
+
+	return "", editline.SimpleWordsCompletion(dirs, "file", col, start, end)
 }
