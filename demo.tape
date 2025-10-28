@@ -66,6 +66,7 @@ Set Shell "bash"
 Set FontSize 20
 Set Width 1200
 Set Height 600
+Set TypingSpeed 35ms
 
 Hide
 
@@ -79,19 +80,18 @@ Ctrl+l Enter
 
 Show
 
-Type "# Welcome to Oils-Readline!" Sleep 500ms  Enter
+Type "echo 'Welcome to Oils-Readline!' > /dev/null" Sleep 300ms  Enter
 
-Type "# It is a shell with a readline just as you are used to" Sleep 500ms  Enter
+Type "echo 'A super modern prompt written in Golang for Ysh!' > /dev/null" Sleep 500ms Enter
+
+Type "for c in a b c d e f { echo $[c=>upper()] }" Sleep 100ms Enter Sleep 500ms
+
+Type "echo It uses Oils as shell and Treesitter Syntax highlighting! > /dev/null" Sleep 400ms Enter
 
 # we need to echo strings longer than a line :(
-# bubbline will remove it otherwise
-Type "echo But the stdin, stdout and stderr of each command executed are completely separate!" Sleep 1s  Enter
+# bubbline will do fuckery otherwise
 
-Type "# This is work in progress, so this does not show yet" Sleep 500ms  Enter
-
-Type "# But at least the readline is in go!" Sleep 500ms  Enter
-
-Type "# Look, it has a help!" Sleep 100ms Ctrl+h Sleep 1500ms Ctrl+h Sleep 500ms Ctrl+h Sleep 500ms Ctrl+h Sleep 200ms Enter
+Type "# Look, it has a help as well!" Sleep 100ms Ctrl+h Sleep 1500ms Ctrl+h Sleep 500ms Ctrl+h Sleep 500ms Ctrl+h Sleep 200ms Enter
 
 Enter
 
