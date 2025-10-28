@@ -188,7 +188,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		command := m.rl.Value()
 
 		size, _ := pty.GetsizeFull(os.Stdin)
-		cmd, fallback, err := NewLegacyCmd(command, m.shell, size)
+		cmd, err := NewCommand(command, m.shell, size)
+		fallback := func(error) tea.Msg { return cmd }
 		if err != nil {
 			log.Fatal("Can't create new Command!", err)
 		}
@@ -216,11 +217,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		fmt.Printf("\r\033[0J")
 		return m, tea.Exec(cmd, fallback)
 
-	case CommandDoneMsg:
+	// Command is done!
+	// TODO: Should be cast to CommandDone?
+	case *Command:
 		//m.state = Executed
 		m.rl.Focus()
-		m.commands = append(m.commands, msg)
-		m.lastCommand = msg
+		// TODO: history!
+		//m.commands = append(m.commands, msg)
+		//m.lastCommand = msg
 		//buf := wrap.NewWriter(m.Width)
 
 		//_, err := io.Copy(buf, m.lastCommand.Stdout())
@@ -268,17 +272,16 @@ func main() {
 
 func getPrompt(shell Shell) string {
 	// TODO: this should also work in osh :D
-	command := NewCommand("pwd | sed \"s|$[ENV.HOME]|~|\"")
-	tty, stderr, err := SetupIO(command,
-		shell,
-		&pty.Winsize{1, 100, 5, 5},
-	)
+	command, err := NewCommand("pwd | sed \"s|$[ENV.HOME]|~|\"", shell, &pty.Winsize{1, 100, 5, 5})
 	if err != nil {
 		return ""
 	}
-	shell.Run(command.CommandLine, tty, tty, stderr)
-	command.Done()
-	command.Cancel()
+	err = command.Run()
+	defer command.Cancel()
+	if err != nil {
+		log.Println(err)
+		return ""
+	}
 	buf := new(strings.Builder)
 	_, err = io.Copy(buf, command.Stdout())
 	if err != nil {
