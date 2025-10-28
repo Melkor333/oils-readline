@@ -48,7 +48,7 @@ import (
 	"strings"
 )
 
-var version = "devel"
+var Version = "devel"
 
 var (
 	versionFlag = flag.Bool("version", false, "Print version and exit")
@@ -264,7 +264,7 @@ func main() {
 	flag.Parse()
 
 	if versionFlag != nil && *versionFlag {
-		fmt.Printf("Oils-Readline version: %s\n", version)
+		fmt.Printf("Oils-Readline version: %s\n", Version)
 		os.Exit(0)
 	}
 

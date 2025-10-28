@@ -16,7 +16,7 @@ builds:
     ldflags:
       - -s
       - -w
-      - -X github.com/Melkor333/oils-readline/main.Version={{ .Version }}
+      - -X main.Version={{ .Version }}
     flags:
       - -trimpath
     goos:
