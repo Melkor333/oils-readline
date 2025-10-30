@@ -159,7 +159,7 @@ func (c *Command) SetStdin(r io.Reader) {
 			//_, err := r.Read(buf)
 			_, err := io.Copy(stdin, rr)
 			if err != nil {
-				if err == io.EOF {
+				if err == io.EOF || errors.Is(err, cancelreader.ErrCanceled) {
 					break
 				}
 				log.Println(err)
