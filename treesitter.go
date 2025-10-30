@@ -33,17 +33,32 @@ var injections = []byte{}
 // better approach would be reading a theme:
 // https://tree-sitter.github.io/tree-sitter/cli/init-config.html#theme
 var colorMap = map[string]string{
-	"black":           "\033[0m",
-	"string":          "\033[0;32m",
-	"keyword":         "\033[0;33m",
-	"variable":        "\033[0;38m",
-	"function.call":   "\033[0;34m",
-	"constant":        "\033[0;31m",
-	"type":            "\033[0;33m",
-	"constructor":     "\033[0;36m",
-	"type.builtin":    "\033[0;32m",
-	"label":           "\033[0;35m",
-	"variable.member": "\033[0;37m",
+	"black":                 "\033[0m",
+	"attribute":             "\033[0;31m",
+	"comment":               "\033[0;32m",
+	"constant":              "\033[0;33m",
+	"constant.builtin":      "\033[0;33m",
+	"constructor":           "\033[0;34m",
+	"function":              "\033[0;37m",
+	"function.builtin":      "\033[0;37m",
+	"keyword":               "\033[0;35m",
+	"module":                "\033[0;34m",
+	"number":                "\033[0;33m",
+	"operator":              "\033[0;36m",
+	"property":              "\033[0;31m",
+	"property.builtin":      "\033[0;31m",
+	"punctuation":           "\033[0;36m",
+	"punctuation.bracket":   "\033[0;36m",
+	"punctuation.delimiter": "\033[0;36m",
+	"punctuation.special":   "\033[0;36m",
+	"string":                "\033[0;34m",
+	"string.special":        "\033[0;35m",
+	"tag":                   "\033[0;31m",
+	"type":                  "\033[0;31m",
+	"type.builtin":          "\033[0;31m",
+	"variable":              "\033[0;33m",
+	"variable.builtin":      "\033[0;33m",
+	"variable.parameter":    "\033[0;34m",
 }
 
 type Highlighter struct {
@@ -71,16 +86,22 @@ func NewHighlighter() *Highlighter {
 	// The types we want to highlight
 	// Order is relevant
 	captureNames := []string{
-		"variable",
-		"function",
-		"string",
-		"keyword",
+		"attribute",
 		"comment",
 		"constant",
-		"number",
-		"module",
+		"constructor",
+		"function",
 		"keyword",
+		"module",
+		"number",
+		"operator",
+		"property",
+		"property.builtin",
 		"punctuation",
+		"string",
+		"tag",
+		"type",
+		"variable",
 	}
 
 	// set up the language and parser
