@@ -1,4 +1,4 @@
-package main
+package fanos
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"log"
 	//TODO: no unnecessary depth
 	"github.com/Melkor333/oils-readline/internal/term"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/creack/pty"
 	"github.com/mcpherrinm/multireader"
 	"github.com/muesli/cancelreader"
@@ -30,8 +31,19 @@ type Command struct {
 	lock     *sync.Mutex
 }
 
+type CommandDoneMsg *Command
+
+func CommandFallback(e error) tea.Msg {
+	switch command := e.(type) {
+	case *Command:
+		return CommandDoneMsg(command)
+	default:
+		return nil
+	}
+}
+
 // chain -> to which chain to add the command? be here?
-func NewCommand(commandLine string, shell Shell, size *pty.Winsize) (*Command, error) {
+func (shell Shell) Command(commandLine string, size *pty.Winsize) (tea.ExecCommand, error) {
 	var err error
 	var c *Command = new(Command)
 	// check errors
@@ -79,7 +91,6 @@ func NewCommand(commandLine string, shell Shell, size *pty.Winsize) (*Command, e
 	}()
 
 	return c, nil
-
 }
 
 // Get a Writer PTY to write into

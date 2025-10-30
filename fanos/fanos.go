@@ -1,4 +1,4 @@
-package main
+package fanos
 
 import (
 	"bufio"
@@ -30,7 +30,7 @@ var (
 	fifo           = flag.Bool("fifo", false, "Use named fifo instead of anonymous pipe")
 )
 
-type FANOSShell struct {
+type Shell struct {
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
 	socket *os.File
@@ -38,16 +38,17 @@ type FANOSShell struct {
 	in, out, err *os.File
 }
 
-func (s *FANOSShell) Cancel() {
+func (s *Shell) Cancel() {
 	s.cancel()
+	s.cmd.Cancel()
 	s.in.Close()
 	s.out.Close()
 	s.err.Close()
 	s.cmd.Wait()
 }
 
-func NewFANOSShell() (*FANOSShell, error) {
-	shell := &FANOSShell{}
+func New() (*Shell, error) {
+	shell := &Shell{}
 	var ctx context.Context
 	ctx, shell.cancel = context.WithCancel(context.Background())
 	if *fanosShellPath == "" {
@@ -89,7 +90,7 @@ func NewFANOSShell() (*FANOSShell, error) {
 	return shell, o
 }
 
-//func (s *FANOSShell) StdIO(in, out, err *os.File) error {
+//func (s *Shell) StdIO(in, out, err *os.File) error {
 //	// Save these for the next Run
 //	s.in, s.out, s.err = in, out, err
 //	if s.in == nil {
@@ -106,7 +107,7 @@ func NewFANOSShell() (*FANOSShell, error) {
 //}
 
 // Run calls the FANOS EVAL method
-func (s *FANOSShell) Run(command string, stdin, stdout, stderr *os.File) error {
+func (s *Shell) Run(command string, stdin, stdout, stderr *os.File) error {
 	// ------------------
 	// Setup File Descriptors, read them into `command.stdXXX`
 	// ------------------
@@ -155,11 +156,11 @@ func (s *FANOSShell) Run(command string, stdin, stdout, stderr *os.File) error {
 	return nil
 }
 
-func (s *FANOSShell) Dir() string {
+func (s *Shell) Dir() string {
 	return ""
 }
 
-func (s *FANOSShell) Complete(input [][]rune, line, col int) (string, editline.Completions) {
+func (s *Shell) Complete(input [][]rune, line, col int) (string, editline.Completions) {
 	// TODO: Only file completions for now
 	// TODO: escape?
 	word, start, end := computil.FindWord(input, line, col)

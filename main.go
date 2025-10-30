@@ -36,9 +36,9 @@ import (
 	//"github.com/muesli/cancelreader"
 	//"github.com/reeflective/readline"
 	// TODO: should be in a module ;)
-	"io"
 	"log"
 
+	"github.com/Melkor333/oils-readline/fanos"
 	"github.com/creack/pty"
 
 	//"net/http"
@@ -79,6 +79,7 @@ type CompletionResult struct {
 
 type Shell interface {
 	//StdIO(*os.File, *os.File, *os.File) error
+	Command(cmd string, size *pty.Winsize) (tea.ExecCommand, error)
 	Run(cmd string, ptmx, tty, stderr *os.File) error
 	Cancel()
 	Complete([][]rune, int, int) (string, editline.Completions)
@@ -106,8 +107,8 @@ type model struct {
 	rl              *editline.Model
 	commandView     viewport.Model
 	prompt          string
-	commands        []*Command
-	lastCommand     *Command
+	commands        []*fanos.Command
+	lastCommand     *fanos.Command
 	runningCommands *atomic.Int64
 	Height          int
 	Width           int
@@ -118,14 +119,13 @@ type model struct {
 }
 
 func newModel(e ExecType) model {
-	s, err := NewFANOSShell()
+	s, err := fanos.New()
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// TODO: resize?!
 	rl := editline.New(80, 20)
-	rl.Prompt = getPrompt(s)
 	rl.AutoComplete = s.Complete
 	//func(entireInput [][]rune, line, col int) (msg string, comp editline.Completions) {
 	//	log.Println(entireInput, line, col)
@@ -133,8 +133,9 @@ func newModel(e ExecType) model {
 	//	return "", editline.SimpleWordsCompletion([]string{"hello world", "goobye world"}, "hello", 3, line, col)
 	//}
 
-	rl.Reset()
+	rl.Prompt = getPrompt(s)
 	rl.Highlighter = NewHighlighter().Highlight
+	rl.Reset()
 
 	runningCommands := new(atomic.Int64)
 	runningCommands.Store(0)
@@ -166,6 +167,17 @@ func (m model) View() string {
 	//s += helpStyle.Render(fmt.Sprintf("\ntab: focus next • n: new %s • q: exit\n", model))
 }
 
+// Update the readline and properly store the returned model
+// This requires some funky magic, because rl.Update() only returns the generic tea.Model interface
+func (m model) UpdateReadline(msg tea.Msg) tea.Cmd {
+	rl, cmd := m.rl.Update(msg)
+	switch rl := rl.(type) {
+	case *editline.Model:
+		m.rl = rl
+	}
+	return cmd
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle special keys first
 	switch msg := msg.(type) {
@@ -176,7 +188,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			m.rl.Reset()
-			return m, nil
+			_cmd := m.UpdateReadline(msg)
+			return m, _cmd
+		case "ctrl+d":
+			if m.rl.Value() == "" {
+				return m, tea.Quit
+			}
+			_cmd := m.UpdateReadline(msg)
+			return m, _cmd
 		case "ctrl+ ":
 			if m.execType == Blocking {
 				m.execType = AltMode
@@ -203,18 +222,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		command := m.rl.Value()
 
 		size, _ := pty.GetsizeFull(os.Stdin)
-		cmd, err := NewCommand(command, m.shell, size)
-		fallback := func(error) tea.Msg { return cmd }
+		cmd, err := m.shell.Command(command, size)
 		if err != nil {
 			log.Fatal("Can't create new Command!", err)
 		}
 		//m.state = Executing
 		if m.execType == AltMode {
-			return m, tea.Sequence(tea.ExitAltScreen, tea.Exec(cmd, fallback), tea.EnterAltScreen)
+			return m, tea.Sequence(tea.ExitAltScreen, tea.Exec(cmd, fanos.CommandFallback), tea.EnterAltScreen)
 		}
 		m.rl.Blur()
 		m.rl.AddHistoryEntry(command)
-		m.rl.Update(msg)
+		// returns nil
+		m.UpdateReadline(msg)
 
 		// TODO: The following stuff should be printed by the `cmd` before executing the process :)
 		// To make sure we don't have a concurrency issue with an in-between `View`
@@ -222,19 +241,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
 		// Doesn't work with tea.Printf :(
 		// cleanup last readline
-		for range m.lastLines {
-			fmt.Printf("\033[1A\033[2K")
-		}
-		//fmt.Printf("\033[1F")
-		// Print blured with short help
-		fmt.Printf(m.rl.View())
-		// Go to beginning of help line, remove until end of screen
-		fmt.Printf("\r\033[0J")
-		return m, tea.Exec(cmd, fallback)
+		//for range m.lastLines {
+		//	fmt.Print("\033[1A\033[2K")
+		//}
+		////fmt.Printf("\033[1F")
+		//// Print blured with short help
+		//fmt.Print(model.View())
+		//// Go to beginning of help line, remove until end of screen
+		//fmt.Print("\r\033[0J")
+		return m, tea.Exec(cmd, fanos.CommandFallback)
 
 	// Command is done!
 	// TODO: Should be cast to CommandDone?
-	case *Command:
+	case fanos.CommandDoneMsg:
 		//m.state = Executed
 		m.rl.Focus()
 		// TODO: history!
@@ -255,8 +274,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// pass to readline if nothing else
-	_, cmd := m.rl.Update(msg)
 	m.lastLines = strings.Count(m.rl.View(), "\n")
+
+	cmd := m.UpdateReadline(msg)
 	return m, cmd
 }
 
@@ -293,18 +313,19 @@ func main() {
 
 func getPrompt(shell Shell) string {
 	// TODO: this should also work in osh :D
-	command, err := NewCommand("pwd | sed \"s|$[ENV.HOME]|~|\"", shell, &pty.Winsize{1, 100, 5, 5})
+	command, err := shell.Command("pwd | sed \"s|$[ENV.HOME]|~|\"", &pty.Winsize{1, 100, 5, 5})
 	if err != nil {
-		return ""
-	}
-	err = command.Run()
-	defer command.Cancel()
-	if err != nil {
-		log.Println(err)
 		return ""
 	}
 	buf := new(strings.Builder)
-	_, err = io.Copy(buf, command.Stdout())
+	command.SetStdout(buf)
+	err = command.Run()
+	//defer command.Cancel()
+	//if err != nil {
+	//	log.Println(err)
+	//	return ""
+	//}
+	//_, err = io.Copy(buf, command.Stdout())
 	if err != nil {
 		log.Println(err)
 	}
