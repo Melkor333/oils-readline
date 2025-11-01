@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
-	//TODO: no unnecessary depth
-	"github.com/Melkor333/oils-readline/internal/term"
+	"golang.org/x/term"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/creack/pty"
 	"github.com/mcpherrinm/multireader"

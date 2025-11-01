@@ -15,36 +15,24 @@
 package main
 
 import (
-	//"bytes"
 	"context"
 	"os"
-
-	//"strconv"
 	"fmt"
 	"sync/atomic"
 
 	//"encoding/json"
 	"flag"
-	//"github.com/knz/bubbline"
 	"github.com/chalk-ai/bubbline/editline"
 	tea "github.com/charmbracelet/bubbletea"
 
 	//"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/bubbles/viewport"
 	//"github.com/muesli/reflow/wrap"
-	//"github.com/Melkor333/oils-readline/internal/term"
-	//"github.com/muesli/cancelreader"
-	//"github.com/reeflective/readline"
-	// TODO: should be in a module ;)
 	"log"
 
 	"github.com/Melkor333/oils-readline/fanos"
 	"github.com/creack/pty"
 
-	//"net/http"
-	//"path/filepath"
-	//"errors"
-	//"fmt"
 	"strings"
 )
 
