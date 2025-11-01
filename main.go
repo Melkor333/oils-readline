@@ -172,9 +172,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
-			if m.rl.Value() == "" {
-				return m, tea.Quit
-			}
 			m.rl.Reset()
 			_cmd := m.UpdateReadline(msg)
 			return m, _cmd
@@ -182,8 +179,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.rl.Value() == "" {
 				return m, tea.Quit
 			}
-			_cmd := m.UpdateReadline(msg)
-			return m, _cmd
 		case "ctrl+ ":
 			if m.execType == Blocking {
 				m.execType = AltMode
