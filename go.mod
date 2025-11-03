@@ -7,7 +7,7 @@ toolchain go1.24.2
 //replace mvdan.cc/sh/v3 => ../mvdan-sh
 
 require (
-	github.com/chalk-ai/bubbline v1.0.10
+	github.com/chalk-ai/bubbline v1.0.11
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/creack/pty v1.1.24
