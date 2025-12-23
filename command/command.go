@@ -1,4 +1,6 @@
-package fanos
+// This Command wraps a shell execution and captures stdin/out/err
+
+package command
 
 import (
 	"context"
@@ -13,6 +15,11 @@ import (
 	"os"
 	"sync"
 )
+
+// TODO: should just be tea.Exec
+type Shell interface {
+	Run(command string, stdin, stdout, stderr *os.File) error
+}
 
 type Command struct {
 	shell          Shell
@@ -42,7 +49,7 @@ func CommandFallback(e error) tea.Msg {
 }
 
 // chain -> to which chain to add the command? be here?
-func (shell Shell) Command(commandLine string, size *pty.Winsize) (tea.ExecCommand, error) {
+func New(commandLine string, shell Shell, size *pty.Winsize) (tea.ExecCommand, error) {
 	var err error
 	var c *Command = new(Command)
 	// check errors
@@ -63,6 +70,7 @@ func (shell Shell) Command(commandLine string, size *pty.Winsize) (tea.ExecComma
 		return nil, err
 	}
 	c.tty = tty
+	// TODO: if size is nil, use a pipe instead
 	pty.Setsize(ptmx, size)
 
 	// Stdin has to be set by writer
