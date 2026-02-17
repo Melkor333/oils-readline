@@ -7,8 +7,6 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
-	"github.com/chalk-ai/bubbline/computil"
-	"github.com/chalk-ai/bubbline/editline"
 	"io"
 	"log"
 	"os"
@@ -19,6 +17,9 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/chalk-ai/bubbline/computil"
+	"github.com/chalk-ai/bubbline/editline"
 )
 
 //go:generate bash ./static-oils.sh

@@ -15,13 +15,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"os"
 	"fmt"
+	"os"
 	"sync/atomic"
 
 	//"encoding/json"
 	"flag"
+
 	"github.com/chalk-ai/bubbline/editline"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -95,8 +97,8 @@ type model struct {
 	rl              *editline.Model
 	commandView     viewport.Model
 	prompt          string
-	commands        []*fanos.Command
-	lastCommand     *fanos.Command
+	commands        []tea.ExecCommand
+	lastCommand     tea.ExecCommand
 	runningCommands *atomic.Int64
 	Height          int
 	Width           int
@@ -211,7 +213,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		//m.state = Executing
 		if m.execType == AltMode {
-			return m, tea.Sequence(tea.ExitAltScreen, tea.Exec(cmd, fanos.CommandFallback), tea.EnterAltScreen)
+			return m, tea.Sequence(tea.ExitAltScreen, tea.Exec(cmd, fanos.CommandFallback(cmd)), tea.EnterAltScreen)
 		}
 		m.rl.Blur()
 		m.rl.AddHistoryEntry(command)
@@ -232,7 +234,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//fmt.Print(model.View())
 		//// Go to beginning of help line, remove until end of screen
 		//fmt.Print("\r\033[0J")
-		return m, tea.Exec(cmd, fanos.CommandFallback)
+		return m, tea.Exec(cmd, fanos.CommandFallback(cmd))
 
 	// Command is done!
 	// TODO: Should be cast to CommandDone?
@@ -275,7 +277,7 @@ func main() {
 	model := newModel(Blocking)
 	defer model.shell.Cancel()
 
-	if _, err := tea.NewProgram(newModel(Blocking)).Run(); err != nil {
+	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Printf("Error Running Oils-Readline: %v", err)
 		os.Exit(1)
 	}

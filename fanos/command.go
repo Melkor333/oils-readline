@@ -3,19 +3,21 @@ package fanos
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
-	"golang.org/x/term"
+	"os"
+	"sync"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/creack/pty"
 	"github.com/mcpherrinm/multireader"
 	"github.com/muesli/cancelreader"
-	"io"
-	"os"
-	"sync"
+	"golang.org/x/term"
 )
 
+// Implementation of the tea.ExecCommand interface for fanos
 type Command struct {
-	shell          Shell
+	shell          *Shell
 	CommandLine    string
 	err            error
 	ctx            context.Context
@@ -30,19 +32,16 @@ type Command struct {
 	lock     *sync.Mutex
 }
 
-type CommandDoneMsg *Command
+type CommandDoneMsg tea.ExecCommand
 
-func CommandFallback(e error) tea.Msg {
-	switch command := e.(type) {
-	case *Command:
-		return CommandDoneMsg(command)
-	default:
-		return nil
+func CommandFallback(c tea.ExecCommand) func(error) tea.Msg {
+	return func(e error) tea.Msg {
+		return CommandDoneMsg(c)
 	}
 }
 
 // chain -> to which chain to add the command? be here?
-func (shell Shell) Command(commandLine string, size *pty.Winsize) (tea.ExecCommand, error) {
+func (shell *Shell) Command(commandLine string, size *pty.Winsize) (tea.ExecCommand, error) {
 	var err error
 	var c *Command = new(Command)
 	// check errors
@@ -137,23 +136,31 @@ func (c *Command) Run() error {
 
 func (c *Command) SetStdin(r io.Reader) {
 	// IF the reader is a File (and thus probably a Terminal) we need to put it into Raw mode during execution!
-	file, ok := r.(*os.File)
+	file, isFile := r.(*os.File)
 	var oldState *term.State
 	var descriptor int
 	var err error
-	if ok {
-		descriptor := int(file.Fd())
+	// If we got a file, try to make it raw
+	// `isFile` is also used lateron to restore the terminal
+	if isFile {
+		descriptor = int(file.Fd())
 		oldState, err = term.MakeRaw(descriptor)
 		// If it's a FIFO, we might not be able to make it RAW :)
 		if err != nil {
-			ok = false
+			log.Println("Couldn't make file raw")
+			isFile = false
 		}
 	}
 
 	stdin, err := c.Stdin()
-	rr, _ := cancelreader.NewReader(r)
 	if err != nil {
-		log.Println("command StdIO wasn't set!")
+		log.Println("Couldn't get stdin for Command")
+		return
+	}
+	rr, err := cancelreader.NewReader(r)
+	if err != nil {
+		log.Println("Couldn't get a new cancelReader!")
+		return
 	}
 
 	go func() {
@@ -162,7 +169,7 @@ func (c *Command) SetStdin(r io.Reader) {
 	}()
 
 	go func() {
-		if ok {
+		if isFile {
 			defer term.Restore(descriptor, oldState)
 		}
 		for {
