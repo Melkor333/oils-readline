@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"os"
+	"io"
 	"fmt"
 	"sync/atomic"
 
@@ -31,8 +32,7 @@ import (
 	"log"
 
 	"github.com/Melkor333/oils-readline/fanos"
-	"github.com/Melkor333/oils-readline/command"
-	"github.com/creack/pty"
+	//"github.com/creack/pty"
 
 	"strings"
 )
@@ -69,8 +69,10 @@ type CompletionResult struct {
 type Shell interface {
 	//StdIO(*os.File, *os.File, *os.File) error
 	//Command(cmd string, size *pty.Winsize) (tea.ExecCommand, error)
+	Command(cmd string) (tea.ExecCommand, error)
+
 	// TODO: This is an implementation detail of fanos.go
-	Run(cmd string, ptmx, tty, stderr *os.File) error
+	//Run(cmd string, ptmx, tty, stderr *os.File) error
 	// Should be sync!
 	//Output(cmd string) (string, error)
 	Cancel()
@@ -94,13 +96,15 @@ type State int
 //	Executing
 //)
 
+type CommandDoneMsg struct{}
+
 type model struct {
 	shell           Shell
 	rl              *editline.Model
 	commandView     viewport.Model
 	prompt          string
-	commands        []*command.Command
-	lastCommand     *command.Command
+	//commands        []*command.Command
+	//lastCommand     *command.Command
 	runningCommands *atomic.Int64
 	Height          int
 	Width           int
@@ -208,14 +212,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//if m.execType == Blocking
 		cmdString := m.rl.Value()
 
-		size, _ := pty.GetsizeFull(os.Stdin)
-		cmd, err := command.New(cmdString, m.shell, size)
+		//size, _ := pty.GetsizeFull(os.Stdin)
+		cmd, err := m.shell.Command(cmdString)
 		if err != nil {
 			log.Fatal("Can't create new Command!", err)
-		}
-		//m.state = Executing
-		if m.execType == AltMode {
-			return m, tea.Sequence(tea.ExitAltScreen, tea.Exec(cmd, func(_ error) tea.Msg { return command.CommandDoneMsg(&command.Command{}) }), tea.EnterAltScreen)
 		}
 		m.rl.Blur()
 		m.rl.AddHistoryEntry(cmdString)
@@ -236,11 +236,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//fmt.Print(model.View())
 		//// Go to beginning of help line, remove until end of screen
 		//fmt.Print("\r\033[0J")
-		return m, tea.Exec(cmd, func(_ error) tea.Msg { return command.CommandDoneMsg(&command.Command{}) })
+		if m.execType == AltMode {
+			return m, tea.Sequence(tea.ExitAltScreen, tea.Exec(cmd, func(_ error) tea.Msg { return CommandDoneMsg{} }), tea.EnterAltScreen)
+		}
+		return m, tea.Exec(cmd, func(_ error) tea.Msg { return CommandDoneMsg{} })
 
 	// Command is done!
 	// TODO: Should be cast to CommandDone?
-	case command.CommandDoneMsg:
+	case CommandDoneMsg:
 		//m.state = Executed
 		m.rl.Focus()
 		// TODO: history!
@@ -300,22 +303,25 @@ func main() {
 
 func getPrompt(shell Shell) string {
 	// TODO: this should also work in osh :D
-	command, err := command.New("pwd | sed \"s|$[ENV.HOME]|~|\"", shell, &pty.Winsize{1, 100, 5, 5})
+	command, err := shell.Command("pwd | sed \"s|$[ENV.HOME]|~|\"")
 	if err != nil {
 		return ""
 	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		log.Println(err)
+		return ""
+	}
 	buf := new(strings.Builder)
-	command.SetStdout(buf)
-	err = command.Run()
+	command.SetStdout(w)
+	go command.Run()
+	go io.Copy(buf, r)
 	//defer command.Cancel()
 	//if err != nil {
 	//	log.Println(err)
 	//	return ""
 	//}
 	//_, err = io.Copy(buf, command.Stdout())
-	if err != nil {
-		log.Println(err)
-	}
 	return strings.ReplaceAll(buf.String(), "\r\n", "") + " $ "
 }
 

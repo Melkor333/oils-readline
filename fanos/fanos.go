@@ -7,8 +7,6 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
-	"github.com/chalk-ai/bubbline/computil"
-	"github.com/chalk-ai/bubbline/editline"
 	"io"
 	"log"
 	"os"
@@ -19,6 +17,9 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/chalk-ai/bubbline/computil"
+	"github.com/chalk-ai/bubbline/editline"
 )
 
 //go:generate bash ./static-oils.sh
@@ -26,7 +27,7 @@ import (
 var embeddedOils []byte
 
 var (
-	fanosShellPath = flag.String("oil_path", "", "Path to Oil shell interpreter")
+	fanosShellPath = flag.String("oils_path", "", "Path to Oil shell interpreter")
 	fifo           = flag.Bool("fifo", false, "Use named fifo instead of anonymous pipe")
 )
 
@@ -111,16 +112,26 @@ func (s *Shell) Run(command string, stdin, stdout, stderr *os.File) error {
 	// ------------------
 	// Setup File Descriptors, read them into `command.stdXXX`
 	// ------------------
+	null, _ := os.Open(os.DevNull)
+	if stdin == nil {
+		stdin = null
+	}
+	if stdout == nil {
+		stdout = null
+	}
+	if stderr == nil {
+		stderr = null
+	}
 
 	// TODO: should be set via an API?
 	// TODO: should createCommand be big?
 	//var ptmx, tty *os.File
 	var err error
-	defer func() {
-		stdin.Close()
-		stdout.Close()
-		stderr.Close()
-	}()
+	//defer func() {
+	//	stdin.Close()
+	//	stdout.Close()
+	//	stderr.Close()
+	//}()
 
 	// ------------------
 	// Send command and FDs via FANOS
@@ -151,9 +162,43 @@ func (s *Shell) Run(command string, stdin, stdout, stderr *os.File) error {
 	sockReader := bufio.NewReader(s.socket)
 	_, err = sockReader.ReadString(',')
 	if err != nil {
+		log.Println("Error with sockreader")
 		return err
 	}
 	return nil
+}
+
+// Run a command and return stdout & stderr as strings
+// TODO: should they be byte buffers?
+func (s *Shell) SimpleCommand(command, input string) (gotStdout, gotStderr string, err error) {
+	var stdin, stdinIn *os.File
+	if len(input) > 0 {
+		stdin, stdinIn, err = os.Pipe()
+		if err != nil {
+			return "", "", err
+		}
+	}
+	stdout, stdoutIn, err := os.Pipe()
+	if err != nil {
+		return "", "", err
+	}
+	outbuf := new(strings.Builder)
+	go io.Copy(outbuf, stdout)
+
+	stderr, stderrIn, err := os.Pipe()
+	if err != nil {
+		return "", "", err
+	}
+	errbuf := new(strings.Builder)
+	go io.Copy(errbuf, stderr)
+
+	go func() {
+		stdinIn.WriteString(input)
+		stdinIn.Close()
+	}()
+	s.Run(command, stdin, stdoutIn, stderrIn)
+
+	return outbuf.String(), errbuf.String(), nil
 }
 
 func (s *Shell) Dir() string {
@@ -172,34 +217,12 @@ func (s *Shell) Complete(input [][]rune, line, col int) (string, editline.Comple
 		log.Println(err)
 		return "", nil
 	}
-	_, stdin, err := os.Pipe()
-	if err != nil {
-		log.Println(err)
-		return "", nil
-	}
-	stderr, stderrIn, err := os.Pipe()
-
-	if err != nil {
-		log.Println(err)
-		return "", nil
-	}
 	buf := new(strings.Builder)
 	var files []string
-	errbu := new(strings.Builder)
-	err = s.Run("compgen -f '"+word+"'", stdin, stdoutIn, stderrIn)
-	if err != nil {
-		log.Println(err)
-		files = []string{}
-	} else {
-		io.Copy(errbu, stderr)
-		io.Copy(buf, stdout)
-		if len(errbu.String()) > 0 {
-			files = []string{}
-
-		} else {
-			files = strings.Split(strings.TrimSpace(buf.String()), "\n")
-		}
-	}
+	go io.Copy(buf, stdout)
+	s.Run("compgen -f '"+word+"'", nil, stdoutIn, nil)
+	stdoutIn.Close()
+	files = strings.Split(strings.TrimSpace(buf.String()), "\n")
 
 	// dirs
 	stdout, stdoutIn, err = os.Pipe()
@@ -207,37 +230,17 @@ func (s *Shell) Complete(input [][]rune, line, col int) (string, editline.Comple
 		log.Println(err)
 		return "", nil
 	}
-	_, stdin, err = os.Pipe()
-	if err != nil {
-		log.Println(err)
-		return "", nil
-	}
-	stderr, stderrIn, err = os.Pipe()
-
-	if err != nil {
-		log.Println(err)
-		return "", nil
-	}
-
 	var dirs []string
-	buf = new(strings.Builder)
-	errbu = new(strings.Builder)
-	err = s.Run("compgen -d '"+word+"'", stdin, stdoutIn, stderrIn)
-	if err != nil {
-		log.Println(err)
-		dirs = []string{}
-	} else {
-		io.Copy(errbu, stderr)
-		io.Copy(buf, stdout)
-		if len(errbu.String()) > 0 {
-			dirs = []string{}
-		} else {
-			dirs = strings.Split(strings.TrimSpace(buf.String()), "\n")
-		}
-	}
+	buf2 := new(strings.Builder)
+	go io.Copy(buf2, stdout)
+	s.Run("compgen -d '"+word+"'", nil, stdoutIn, nil)
+	log.Println(files)
+	stdoutIn.Close()
+	log.Println(dirs)
+	dirs = strings.Split(strings.TrimSpace(buf2.String()), "\n")
 	for i, d := range dirs {
 		// remove dirs from files
-		if len(files) > 0 {
+		if len(files) > 1 {
 			if i := slices.Index(files, d); i >= 0 {
 				files[i] = files[len(files)-1]
 				files = files[:len(files)-1]
@@ -248,6 +251,7 @@ func (s *Shell) Complete(input [][]rune, line, col int) (string, editline.Comple
 	if len(files) > 0 {
 		dirs = append(dirs, files...)
 	}
+	log.Println("yey2")
 	// Sort case insensitive
 	sort.Slice(dirs, func(i, j int) bool { return strings.ToLower(dirs[i]) < strings.ToLower(dirs[j]) })
 
