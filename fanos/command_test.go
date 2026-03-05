@@ -112,13 +112,13 @@ func TestCommand_Run(t *testing.T) {
 			command.Run()
 
 			var stdout, stderr strings.Builder
-			io.Copy(&stdout, command.stdout)
+			io.Copy(&stdout, command.Stdout())
 			if stdout.String() != tt.stdout {
 				t.Errorf("stdout doesn't match! got %v, wanted %v", stdout.String(), tt.stdout)
 			}
-			io.Copy(&stderr, command.stderr)
+			io.Copy(&stderr, command.Stderr())
 			if stderr.String() != tt.stderr {
-				t.Errorf("stderr doesn't match! got %v, wanted %v", stdout.String(), tt.stdout)
+				t.Errorf("stderr doesn't match! got %v, wanted %v", stderr.String(), tt.stderr)
 			}
 		})
 	}
