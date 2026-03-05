@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sync/atomic"
 
@@ -69,11 +70,18 @@ type CompletionResult struct {
 
 type Shell interface {
 	//StdIO(*os.File, *os.File, *os.File) error
-	Command(cmd string, size *pty.Winsize) (tea.ExecCommand, error)
+	Command(cmd string, size *pty.Winsize) (*Command, error)
 	Run(cmd string, ptmx, tty, stderr *os.File) error
 	Cancel()
 	Complete([][]rune, int, int) (string, editline.Completions)
 	Dir() string
+}
+
+type Command interface {
+	Run() tea.Msg
+	Stdin() io.Writer
+	Stdout() io.Reader
+	Stderr() io.Reader
 }
 
 type ExecType int
@@ -123,6 +131,7 @@ func newModel(e ExecType) model {
 	//	return "", editline.SimpleWordsCompletion([]string{"hello world", "goobye world"}, "hello", 3, line, col)
 	//}
 
+	var _ Command = &fanos.Command{}
 	rl.Prompt = getPrompt(s)
 	rl.Highlighter = NewHighlighter().Highlight
 	rl.Reset()
@@ -131,6 +140,7 @@ func newModel(e ExecType) model {
 	runningCommands.Store(0)
 
 	return model{
+		lastLines:       0,
 		shell:           s,
 		rl:              rl,
 		runningCommands: runningCommands,
@@ -159,24 +169,24 @@ func (m model) View() string {
 
 // Update the readline and properly store the returned model
 // This requires some funky magic, because rl.Update() only returns the generic tea.Model interface
-func (m model) UpdateReadline(msg tea.Msg) tea.Cmd {
+func (m model) UpdateReadline(msg tea.Msg) (model, tea.Cmd) {
 	rl, cmd := m.rl.Update(msg)
-	switch rl := rl.(type) {
-	case *editline.Model:
-		m.rl = rl
-	}
-	return cmd
+	// They return an interface...
+	m.rl = rl.(*editline.Model)
+	m.lastLines = strings.Count(m.rl.View(), "\n")
+	return m, cmd
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle special keys first
+	// tea messages first
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
 			m.rl.Reset()
-			_cmd := m.UpdateReadline(msg)
-			return m, _cmd
+			m, cmd = m.UpdateReadline(msg)
+			return m, cmd
 		case "ctrl+d":
 			if m.rl.Value() == "" {
 				return m, tea.Quit
@@ -189,36 +199,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.execType = Blocking
 				return m, tea.ExitAltScreen
 			}
-
 		}
-	}
 
-	// Handle different special messages
-	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.Height = msg.Height
 		m.Width = msg.Width
 		m.rl.SetSize(m.Width, m.Height-20)
 		m.rl.Reset()
 
+	// Handle editline messages
 	case editline.InputCompleteMsg:
 		//TODO: Other exec types
 		//if m.execType == Blocking
+		m, _ = m.UpdateReadline(msg)
 		command := m.rl.Value()
+		m.rl.Reset()
 
 		size, _ := pty.GetsizeFull(os.Stdin)
-		cmd, err := m.shell.Command(command, size)
+		exec, err := m.shell.Command(command, size)
 		if err != nil {
 			log.Fatal("Can't create new Command!", err)
 		}
 		//m.state = Executing
-		if m.execType == AltMode {
-			return m, tea.Sequence(tea.ExitAltScreen, tea.Exec(cmd, fanos.CommandFallback(cmd)), tea.EnterAltScreen)
-		}
 		m.rl.Blur()
 		m.rl.AddHistoryEntry(command)
+
 		// returns nil
-		m.UpdateReadline(msg)
+		if m.execType == AltMode {
+			return m, tea.Sequence(tea.ExitAltScreen, tea.Exec(exec, fanos.CommandCallback(exec)), tea.EnterAltScreen)
+		}
 
 		// TODO: The following stuff should be printed by the `cmd` before executing the process :)
 		// To make sure we don't have a concurrency issue with an in-between `View`
@@ -234,13 +243,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//fmt.Print(model.View())
 		//// Go to beginning of help line, remove until end of screen
 		//fmt.Print("\r\033[0J")
-		return m, tea.Exec(cmd, fanos.CommandFallback(cmd))
+		return m, tea.Exec(exec, fanos.CommandCallback(exec))
 
-	// Command is done!
+	// Fanos
 	// TODO: Should be cast to CommandDone?
 	case fanos.CommandDoneMsg:
 		//m.state = Executed
+		m.rl.Prompt = getPrompt(m.shell)
 		m.rl.Focus()
+		m.rl.Reset()
+		m, cmd = m.UpdateReadline(msg)
 		// TODO: history!
 		//m.commands = append(m.commands, msg)
 		//m.lastCommand = msg
@@ -252,16 +264,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//}
 		//m.commandView = viewport.New(m.Width, m.Height-20)
 		//m.commandView.SetContent(buf.String())
-		m.rl.Prompt = getPrompt(m.shell)
-		m.rl.Reset()
-		return m, nil
+		return m, cmd
 	default:
 	}
 
 	// pass to readline if nothing else
+	m, cmd = m.UpdateReadline(msg)
 	m.lastLines = strings.Count(m.rl.View(), "\n")
 
-	cmd := m.UpdateReadline(msg)
 	return m, cmd
 }
 
@@ -304,6 +314,7 @@ func getPrompt(shell Shell) string {
 	}
 	buf := new(strings.Builder)
 	command.SetStdout(buf)
+	command.SetStdin(bytes.NewReader(nil))
 	err = command.Run()
 	//defer command.Cancel()
 	//if err != nil {

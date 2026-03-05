@@ -2,7 +2,6 @@ package fanos
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log"
 	"os"
@@ -10,21 +9,20 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/creack/pty"
-	"github.com/mcpherrinm/multireader"
-	"github.com/muesli/cancelreader"
+
+	//"github.com/mcpherrinm/multireader"
+	//"github.com/muesli/cancelreader"
 	"golang.org/x/term"
 )
 
 // Implementation of the tea.ExecCommand interface for fanos
 type Command struct {
-	shell          *Shell
-	CommandLine    string
-	err            error
-	ctx            context.Context
-	Cancel         context.CancelFunc
-	stdinMu        sync.Mutex
-	stdin          *os.File
-	stdout, stderr *multireader.Buffer
+	shell                 *Shell
+	CommandLine           string
+	err                   error
+	ctx                   context.Context
+	Cancel                context.CancelFunc
+	stdin, stdout, stderr *os.File
 	// For the Client
 	tty      *os.File
 	stderrIn *os.File
@@ -32,16 +30,21 @@ type Command struct {
 	lock     *sync.Mutex
 }
 
-type CommandDoneMsg tea.ExecCommand
+type CommandDoneMsg tea.Msg
 
-func CommandFallback(c tea.ExecCommand) func(error) tea.Msg {
-	return func(e error) tea.Msg {
-		return CommandDoneMsg(c)
-	}
+func (c *Command) Stdin() io.Writer {
+	return c.stdin
 }
 
-// chain -> to which chain to add the command? be here?
-func (shell *Shell) Command(commandLine string, size *pty.Winsize) (tea.ExecCommand, error) {
+func (c *Command) Stdout() io.Reader {
+	return c.stdout
+}
+
+func (c *Command) Stderr() io.Reader {
+	return c.stderr
+}
+
+func (shell *Shell) Command(commandLine string, size *pty.Winsize) (*Command, error) {
 	var err error
 	var c *Command = new(Command)
 	// check errors
@@ -51,160 +54,79 @@ func (shell *Shell) Command(commandLine string, size *pty.Winsize) (tea.ExecComm
 	c.wg = new(sync.WaitGroup)
 	c.wg.Add(1)
 	// TODO: somethingsomething TeeReader...?
-	c.stdout = multireader.New()
-	c.stderr = multireader.New()
+	//c.stdout = multireader.New()
+	//c.stderr = multireader.New()
 	// to be unlocked when stdin exists.
-	c.stdinMu.Lock()
 
 	// get a PTY Master & Slave
 	ptmx, tty, err := pty.Open()
 	if err != nil {
 		return nil, err
 	}
+
 	c.tty = tty
 	pty.Setsize(ptmx, size)
 
+	var descriptor int
+	descriptor = int(ptmx.Fd())
+	_, err = term.MakeRaw(descriptor)
+	if err != nil {
+		log.Println("Couldn't make file raw")
+	}
+
 	// Stdin has to be set by writer
 	c.stdin = ptmx
+	c.stdout = ptmx
 
 	// Stdout
-	c.wg.Add(1)
-	go func() {
-		defer c.stdout.Close()
-		defer c.wg.Done()
-		io.Copy(c.stdout, ptmx)
-	}()
+	//c.wg.Add(1)
+	//go func() {
+	//	defer c.stdout.Close()
+	//	defer c.wg.Done()
+	//	io.Copy(c.stdout, ptmx)
+	//}()
 
 	// Stderr
-	stderrOut, stderrIn, err := os.Pipe()
+	c.stderr, c.stderrIn, err = os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	c.stderrIn = stderrIn
-	c.wg.Add(1)
-	go func() {
-		defer c.stderr.Close()
-		defer c.wg.Done()
-		io.Copy(c.stderr, stderrOut)
-	}()
+	//c.stderrIn = stderrIn
+	//c.wg.Add(1)
+	//go func() {
+	//	defer c.stderr.Close()
+	//	defer c.wg.Done()
+	//	io.Copy(c.stderr, stderrOut)
+	//}()
 
 	return c, nil
 }
 
-// Get a Writer PTY to write into
-func (c *Command) Stdin() (*os.File, error) {
-	if c.stdin == nil {
-		return nil, errors.New("Need to call command.StdIO first!")
-	}
-
-	return c.stdin, nil
-}
-
 // Get a reader to read STDOUT, even AFTER the command finished
-func (c *Command) Stdout() io.Reader {
-	return c.stdout.Reader()
-}
+//func (c *Command) Stdout() io.Reader {
+//	return c.stdout.Reader()
+//}
 
 // Get a reader to read STDERR, even AFTER the command finished
-func (c *Command) Stderr() io.Reader {
-	return c.stderr.Reader()
-}
+//func (c *Command) Stderr() io.Reader {
+//	return c.stderr.Reader()
+//}
 
 // Wait for command to finish
 func (c *Command) Wait() {
 	c.wg.Wait()
 }
 
-// Mark command as done
-func (c *Command) done() {
-	c.wg.Done()
-}
-
-// Execute Command
-func (c *Command) Run() error {
+// This is the desired tea.Cmd
+func (c *Command) Run() tea.Msg {
 	// Cleanup the "help" line
 	err := c.shell.Run(c.CommandLine, c.tty, c.tty, c.stderrIn)
-	c.done()
+	c.wg.Done()
 	if err != nil {
-		return err
-	}
-	//	term.Restore(descriptor, state)
-
-	// TODO: Capture and return exit code :)
-	return nil
-}
-
-func (c *Command) SetStdin(r io.Reader) {
-	// IF the reader is a File (and thus probably a Terminal) we need to put it into Raw mode during execution!
-	file, isFile := r.(*os.File)
-	var oldState *term.State
-	var descriptor int
-	var err error
-	// If we got a file, try to make it raw
-	// `isFile` is also used lateron to restore the terminal
-	if isFile {
-		descriptor = int(file.Fd())
-		oldState, err = term.MakeRaw(descriptor)
-		// If it's a FIFO, we might not be able to make it RAW :)
-		if err != nil {
-			log.Println("Couldn't make file raw")
-			isFile = false
-		}
+		c.err = err
 	}
 
-	stdin, err := c.Stdin()
-	if err != nil {
-		log.Println("Couldn't get stdin for Command")
-		return
-	}
-	rr, err := cancelreader.NewReader(r)
-	if err != nil {
-		log.Println("Couldn't get a new cancelReader!")
-		return
-	}
-
-	go func() {
-		c.Wait()
-		rr.Cancel()
-	}()
-
-	go func() {
-		if isFile {
-			defer term.Restore(descriptor, oldState)
-		}
-		for {
-			//_, err := r.Read(buf)
-			_, err := io.Copy(stdin, rr)
-			if err != nil {
-				if err == io.EOF || errors.Is(err, cancelreader.ErrCanceled) {
-					break
-				}
-				log.Println(err)
-				break
-			}
-		}
-		io.Copy(stdin, rr)
-	}()
-}
-
-// These are to set BEFORE running the command
-func (c *Command) SetStdout(w io.Writer) {
-	go func() {
-		_, err := io.Copy(w, c.stdout.Reader())
-		if err != nil {
-			log.Println(err)
-		}
-	}()
-}
-
-// These are to set BEFORE running the command
-func (c *Command) SetStderr(w io.Writer) {
-	go func() {
-		_, err := io.Copy(w, c.stderr.Reader())
-		if err != nil {
-			log.Println(err)
-		}
-	}()
+	return CommandDoneMsg(c)
 }
 
 func (c *Command) Error() string {

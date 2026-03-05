@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Run in a container
+apt update && apt install -y wget gcc g++
+
 VERSION=0.37.0
 
 # Step 1: Set up a working directory

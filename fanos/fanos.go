@@ -52,8 +52,9 @@ func New() (*Shell, error) {
 	shell := &Shell{}
 	var ctx context.Context
 	ctx, shell.cancel = context.WithCancel(context.Background())
+	// If we don't have a shell path, we use the 'builtin shell'
+	// TODO: We could test for `ysh` on the path and use that.
 	if *fanosShellPath == "" {
-		// Use the mmap and syscall execution method described in the blog post
 		tempDir := os.TempDir()
 		filePath := path.Join(tempDir, "ysh")
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
@@ -70,6 +71,7 @@ func New() (*Shell, error) {
 		shell.cmd = exec.CommandContext(ctx, *fanosShellPath, "--headless")
 	}
 
+	// Using a socket for communication with the shell
 	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		return nil, fmt.Errorf("can't create socketpair: %w", err)
@@ -79,43 +81,21 @@ func New() (*Shell, error) {
 	shell.cmd.Stdin = server
 	shell.cmd.Stdout = server
 
+	// TODO: We should catch it's stderr
 	shell.cmd.Stderr = io.Discard
 	//shell.cmd.Stderr = os.Stderr
 
 	o := shell.cmd.Start()
-	// TODO: Graceful exit
+	// TODO: Make sure this exit is *really* graceful
 	go func() {
 		shell.cmd.Wait()
-		os.Exit(0)
+		//os.Exit(0)
 	}()
 	return shell, o
 }
 
-//func (s *Shell) StdIO(in, out, err *os.File) error {
-//	// Save these for the next Run
-//	s.in, s.out, s.err = in, out, err
-//	if s.in == nil {
-//		s.in, _ = os.Open(os.DevNull)
-//	}
-//	if s.out == nil {
-//		s.out, _ = os.Open(os.DevNull)
-//	}
-//	if s.err == nil {
-//		s.err, _ = os.Open(os.DevNull)
-//	}
-//
-//	return nil
-//}
-
 // Run calls the FANOS EVAL method
 func (s *Shell) Run(command string, stdin, stdout, stderr *os.File) error {
-	// ------------------
-	// Setup File Descriptors, read them into `command.stdXXX`
-	// ------------------
-
-	// TODO: should be set via an API?
-	// TODO: should createCommand be big?
-	//var ptmx, tty *os.File
 	var err error
 	defer func() {
 		stdin.Close()
@@ -130,6 +110,7 @@ func (s *Shell) Run(command string, stdin, stdout, stderr *os.File) error {
 	var buf bytes.Buffer
 	buf.WriteString("EVAL ")
 	buf.WriteString(command)
+
 	// Send command per Netstring
 	_, err = s.socket.Write([]byte(strconv.Itoa(buf.Len()) + ":"))
 	if err != nil {
@@ -148,7 +129,6 @@ func (s *Shell) Run(command string, stdin, stdout, stderr *os.File) error {
 
 	// TODO: Actually read netstring instead of reading until ','
 	// Wait for FANOS Answer
-	//log.Println("Running command")
 	sockReader := bufio.NewReader(s.socket)
 	_, err = sockReader.ReadString(',')
 	if err != nil {
@@ -157,10 +137,12 @@ func (s *Shell) Run(command string, stdin, stdout, stderr *os.File) error {
 	return nil
 }
 
+// TODO: The required command should be "delivered" by the chosen shell
 func (s *Shell) Dir() string {
 	return ""
 }
 
+// TODO: This should be a plugin at some point
 func (s *Shell) Complete(input [][]rune, line, col int) (string, editline.Completions) {
 	// TODO: Only file completions for now
 	// TODO: escape?

@@ -4,5 +4,5 @@ lib/inject_tcsetpgrp.so
 /web_shell
 .crush
 oils-readline
-assets/*
 dist/*
+fanos/assets/
