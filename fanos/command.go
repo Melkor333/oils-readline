@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/Melkor333/oils-readline/shell"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/creack/pty"
 
@@ -44,7 +45,15 @@ func (c *Command) Stderr() io.Reader {
 	return c.stderr
 }
 
-func (shell *Shell) Command(commandLine string, size *pty.Winsize) (*Command, error) {
+func (c *Command) SetStdout(stdout io.Reader) {
+	c.stdout = stdout.(*os.File) // this will panic if it's not an *os.File, maybe add error handling or make c.stdout an io.Reader instead?
+}
+
+func (c *Command) SetStdin(stdin io.Writer) {
+	c.stdin = stdin.(*os.File) // this will panic if it's not an *os.File, maybe add error handling or make c.stdin an io.Writer instead?
+}
+
+func (shell *Shell) Command(commandLine string, size *pty.Winsize) (shell.Command, error) {
 	var err error
 	var c *Command = new(Command)
 	// check errors

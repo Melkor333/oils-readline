@@ -12,11 +12,8 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/creack/pty v1.1.24
 	github.com/danyspin97/tree-sitter-ysh v0.0.0-20251017124738-1d2443631c59
-	github.com/mcpherrinm/multireader v0.0.0-20210209030331-ecd0fad39ad6
-	github.com/muesli/cancelreader v0.2.2
 	github.com/tree-sitter/go-tree-sitter v0.25.0
 	go.gopad.dev/go-tree-sitter-highlight v0.0.0-20241203223050-3ffb64c3a650
-	golang.org/x/crypto v0.46.0
 	golang.org/x/term v0.38.0
 )
 
@@ -36,6 +33,7 @@ require (
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
+	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

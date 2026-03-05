@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"sync/atomic"
 
@@ -34,6 +33,7 @@ import (
 	"log"
 
 	"github.com/Melkor333/oils-readline/fanos"
+	"github.com/Melkor333/oils-readline/shell"
 	"github.com/creack/pty"
 
 	"strings"
@@ -68,22 +68,6 @@ type CompletionResult struct {
 	Options []Completion `json:"options"`
 }
 
-type Shell interface {
-	//StdIO(*os.File, *os.File, *os.File) error
-	Command(cmd string, size *pty.Winsize) (*Command, error)
-	Run(cmd string, ptmx, tty, stderr *os.File) error
-	Cancel()
-	Complete([][]rune, int, int) (string, editline.Completions)
-	Dir() string
-}
-
-type Command interface {
-	Run() tea.Msg
-	Stdin() io.Writer
-	Stdout() io.Reader
-	Stderr() io.Reader
-}
-
 type ExecType int
 
 const (
@@ -101,7 +85,7 @@ type State int
 //)
 
 type model struct {
-	shell           Shell
+	shell           shell.Shell
 	rl              *editline.Model
 	commandView     viewport.Model
 	prompt          string
@@ -131,7 +115,7 @@ func newModel(e ExecType) model {
 	//	return "", editline.SimpleWordsCompletion([]string{"hello world", "goobye world"}, "hello", 3, line, col)
 	//}
 
-	var _ Command = &fanos.Command{}
+	var _ shell.Command = &fanos.Command{}
 	rl.Prompt = getPrompt(s)
 	rl.Highlighter = NewHighlighter().Highlight
 	rl.Reset()
@@ -306,16 +290,16 @@ func main() {
 //os.MkdirAll(filepath.Dir(h), os.ModePerm)
 //rl.History.AddFromFile("history", h)
 
-func getPrompt(shell Shell) string {
+func getPrompt(shell shell.Shell) string {
 	// TODO: this should also work in osh :D
 	command, err := shell.Command("pwd | sed \"s|$[ENV.HOME]|~|\"", &pty.Winsize{1, 100, 5, 5})
 	if err != nil {
 		return ""
 	}
-	buf := new(strings.Builder)
+	buf := new(bytes.Buffer)
 	command.SetStdout(buf)
-	command.SetStdin(bytes.NewReader(nil))
-	err = command.Run()
+	command.SetStdin(bytes.NewBuffer(nil))
+	err = command.Run() // TODO: fixme, and the buffer thingy above me as well
 	//defer command.Cancel()
 	//if err != nil {
 	//	log.Println(err)
