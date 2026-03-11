@@ -207,6 +207,8 @@ func main() {
 			os.Exit(1)
 		}
 		defer f.Close()
+	} else {
+		log.SetOutput(io.Discard)
 	}
 
 	ti := textinput.New()
