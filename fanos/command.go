@@ -7,8 +7,8 @@ import (
 	"os"
 	"sync"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/Melkor333/oils-readline/shell"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/creack/pty"
 
 	//"github.com/mcpherrinm/multireader"
@@ -31,7 +31,7 @@ type Command struct {
 	lock     *sync.Mutex
 }
 
-type CommandDoneMsg tea.Msg
+type CommandDoneMsg *Command
 
 func (c *Command) Stdin() io.Writer {
 	return c.stdin

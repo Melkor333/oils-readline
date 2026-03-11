@@ -48,6 +48,11 @@ func (s *Shell) Cancel() {
 	s.cmd.Wait()
 }
 
+func (s *Shell) Wait() {
+	s.cmd.Wait()
+	s.Cancel()
+}
+
 func New() (*Shell, error) {
 	shell := &Shell{}
 	var ctx context.Context

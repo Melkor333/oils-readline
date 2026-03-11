@@ -4,8 +4,8 @@ import (
 	"io"
 	"os"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/chalk-ai/bubbline/editline"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/creack/pty"
 )
 
@@ -16,6 +16,7 @@ type Shell interface {
 	Cancel()
 	Complete([][]rune, int, int) (string, editline.Completions)
 	Dir() string
+	Wait()
 }
 
 type Command interface {
