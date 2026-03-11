@@ -91,10 +91,9 @@ type State int
 
 type model struct {
 	shell       shell.Shell
-	input       *textinput.Model
+	input       textinput.Model
 	commandView viewport.Model
-	prompt      string
-	outputs     []string
+	output      string
 	Height      int
 	Width       int
 	highlighter Highlighter
@@ -157,15 +156,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input.Reset()
 			return m, tea.Sequence(tea.Batch(cmd.Run, CommandOutputToMessage(cmd.Stdout())))
 		}
-		input, cmd := m.input.Update(msg)
-		m.input = &input
-		m.commandView.SetHeight(m.Height - lipgloss.Height(m.input.View()))
-		m.prompt = m.input.Value()
+		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 
 	case CommandOutputMsg:
 		m.commandView.SetContent(string(msg))
-		m.commandView.SetHeight(min(m.Height-lipgloss.Height(m.input.View()), lipgloss.Height(string(msg))))
+		m.commandView.GotoTop()
 		m.input.Reset()
 		//m.outputs = append(m.outputs, string(msg))
 		return m, nil
@@ -182,17 +178,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Fanos
 	// TODO: Should be cast to CommandDone?
 	case fanos.CommandDoneMsg:
-		//m.rl.Prompt = getPrompt(m.shell)
 		return m, nil
 
 	default:
-		input, cmd := m.input.Update(msg)
-		m.input = &input
-		m.prompt = m.input.Value()
-		m.commandView.SetHeight(m.Height - lipgloss.Height(m.input.View()))
+		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 	}
-	return m, cmd
 }
 
 func main() {
@@ -229,8 +220,9 @@ func main() {
 		viewport.WithHeight(20),
 	)
 	commandView.YPosition = 0
+	commandView.FillHeight = false
 	model := &model{
-		input:       &ti,
+		input:       ti,
 		shell:       s,
 		commandView: commandView,
 	}
