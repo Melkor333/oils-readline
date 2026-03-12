@@ -5,9 +5,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"sync"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/creack/pty"
 
@@ -19,11 +19,13 @@ import (
 // Implementation of the tea.ExecCommand interface for fanos
 type Command struct {
 	shell                 *Shell
-	CommandLine           string
+	commandline           string
 	err                   error
 	ctx                   context.Context
 	Cancel                context.CancelFunc
 	stdin, stdout, stderr *os.File
+	stdoutBuf, stderrBuf  *strings.Builder
+	stdoutMu, stderrMu    sync.Mutex
 	// For the Client
 	tty      *os.File
 	stderrIn *os.File
@@ -31,18 +33,24 @@ type Command struct {
 	lock     *sync.Mutex
 }
 
-type CommandDoneMsg *Command
+func (c *Command) CommandLine() string {
+	return c.commandline
+}
 
 func (c *Command) Stdin() io.Writer {
 	return c.stdin
 }
 
-func (c *Command) Stdout() io.Reader {
-	return c.stdout
+func (c *Command) Stdout() string {
+	c.stdoutMu.Lock()
+	defer c.stdoutMu.Unlock()
+	return c.stdoutBuf.String()
 }
 
-func (c *Command) Stderr() io.Reader {
-	return c.stderr
+func (c *Command) Stderr() string {
+	c.stderrMu.Lock()
+	defer c.stderrMu.Unlock()
+	return c.stderrBuf.String()
 }
 
 func (c *Command) SetStdout(stdout io.Reader) {
@@ -57,15 +65,14 @@ func (shell *Shell) Command(commandLine string, size *pty.Winsize) (shell.Comman
 	var err error
 	var c *Command = new(Command)
 	// check errors
-	c.CommandLine = commandLine
+	c.commandline = commandLine
 	c.shell = shell
+	c.stdoutBuf = new(strings.Builder)
+	c.stderrBuf = new(strings.Builder)
 	c.ctx, c.Cancel = context.WithCancel(context.Background())
 	c.wg = new(sync.WaitGroup)
+	// Will be closed when the command was executed
 	c.wg.Add(1)
-	// TODO: somethingsomething TeeReader...?
-	//c.stdout = multireader.New()
-	//c.stderr = multireader.New()
-	// to be unlocked when stdin exists.
 
 	// get a PTY Master & Slave
 	ptmx, tty, err := pty.Open()
@@ -83,59 +90,60 @@ func (shell *Shell) Command(commandLine string, size *pty.Winsize) (shell.Comman
 		log.Println("Couldn't make file raw")
 	}
 
-	// Stdin has to be set by writer
 	c.stdin = ptmx
+
 	c.stdout = ptmx
+	// Read from stdout/stderr into our buffer
+	// TODO: the stdoutBuf.Write might require a lock?!
+	c.wg.Go(func() {
+		buf := make([]byte, 1024*1024) // large buffer
+		for {
+			count, err := c.stdout.Read(buf)
+			if err != nil {
+				// TODO: This message is currently unhandled!
+				break
+				// handle error / EOF
+			}
+			c.stdoutMu.Lock()
+			c.stdoutBuf.Write(buf[:count])
+			c.stdoutMu.Unlock()
+		}
+	})
 
-	// Stdout
-	//c.wg.Add(1)
-	//go func() {
-	//	defer c.stdout.Close()
-	//	defer c.wg.Done()
-	//	io.Copy(c.stdout, ptmx)
-	//}()
-
-	// Stderr
 	c.stderr, c.stderrIn, err = os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	//c.stderrIn = stderrIn
-	//c.wg.Add(1)
-	//go func() {
-	//	defer c.stderr.Close()
-	//	defer c.wg.Done()
-	//	io.Copy(c.stderr, stderrOut)
-	//}()
+	c.wg.Go(func() {
+		buf := make([]byte, 100) // large buffer
+		for {
+			count, err := c.stderr.Read(buf)
+			if err != nil {
+				// TODO: This message is currently unhandled!
+				break
+				// handle error / EOF
+			}
+			c.stderrMu.Lock()
+			c.stderrBuf.Write(buf[:count])
+			c.stderrMu.Unlock()
+		}
+	})
 
 	return c, nil
 }
 
-// Get a reader to read STDOUT, even AFTER the command finished
-//func (c *Command) Stdout() io.Reader {
-//	return c.stdout.Reader()
-//}
-
-// Get a reader to read STDERR, even AFTER the command finished
-//func (c *Command) Stderr() io.Reader {
-//	return c.stderr.Reader()
-//}
-
-// Wait for command to finish
 func (c *Command) Wait() {
 	c.wg.Wait()
 }
 
-// This is the desired tea.Cmd
-func (c *Command) Run() tea.Msg {
+func (c *Command) Run() {
 	// Cleanup the "help" line
-	err := c.shell.Run(c.CommandLine, c.tty, c.tty, c.stderrIn)
+	err := c.shell.Run(c.commandline, c.tty, c.tty, c.stderrIn)
+
 	c.wg.Done()
 	if err != nil {
 		c.err = err
 	}
-
-	return CommandDoneMsg(c)
 }
 
 func (c *Command) Error() string {

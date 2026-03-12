@@ -4,7 +4,6 @@ import (
 	"io"
 	"os"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/chalk-ai/bubbline/editline"
 	"github.com/creack/pty"
 )
@@ -20,10 +19,12 @@ type Shell interface {
 }
 
 type Command interface {
-	Run() tea.Msg
+	Run()
+	CommandLine() string
+	Wait()
 	Stdin() io.Writer
-	Stdout() io.Reader
-	Stderr() io.Reader
+	Stdout() string
+	Stderr() string
 	SetStdout(stdout io.Reader)
 	SetStdin(stdin io.Writer)
 }

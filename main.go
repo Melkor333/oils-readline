@@ -15,11 +15,9 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
-	"sync"
 
 	//"encoding/json"
 	"flag"
@@ -27,12 +25,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	//"github.com/charmbracelet/lipgloss"
-	"charm.land/bubbles/v2/viewport"
 	//"github.com/muesli/reflow/wrap"
 
 	//  TODO: Once we have chroma highlighting. (Vibecode chroma highlighter from vim highlighter/treesitter maybe?)
 	// editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 
 	"log"
@@ -84,40 +82,43 @@ const (
 
 type State int
 
-//const (
-//	Reading State = iota
-//	Executing
-//)
+type CommandOutputErrorMsg error
+type CommandDoneMsg shell.Command
 
 type model struct {
 	shell       shell.Shell
 	input       textinput.Model
-	commandView viewport.Model
-	output      string
+	commands    []shell.Command
+	viewports   []viewport.Model
 	Height      int
 	Width       int
 	highlighter Highlighter
-	// state           State
 }
 
 func (m *model) Init() tea.Cmd {
 	return nil
 }
 
-func (m *model) View() tea.View {
-	// TODO: Show output... ;)
-	v := tea.NewView(m.commandView.View() + "\n" + m.input.View())
-	return v
+func (m *model) NewViewport(prompt string) {
+	commandView := viewport.New(
+		viewport.WithWidth(20),
+		//viewport.WithHeight(20),
+	)
+	commandView.YPosition = 0
+	commandView.FillHeight = false
+	m.viewports = append(m.viewports, commandView)
 }
 
-type CommandOutputMsg string
-
-func CommandOutputToMessage(reader io.Reader) func() tea.Msg {
-	return func() tea.Msg {
-		buf := new(bytes.Buffer)
-		io.Copy(buf, reader)
-		return CommandOutputMsg(buf.String())
+func (m *model) View() tea.View {
+	// TODO: Show output... ;)
+	var strs []string
+	for _, command := range m.commands {
+		log.Print(command)
+		strs = append(strs, command.CommandLine())
+		strs = append(strs, strings.Trim(command.Stdout(), "\r\n"))
 	}
+	strs = append(strs, strings.Trim(m.input.View(), "\r\n"))
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, strs...))
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -134,6 +135,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		case "ctrl+d":
 			if m.input.Value() == "" {
+				m.shell.Cancel()
 				return m, tea.Quit
 			}
 			return m, nil
@@ -148,37 +150,43 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			size, _ := pty.GetsizeFull(os.Stdin)
 			cmd, err := m.shell.Command(command, size)
+			m.commands = append(m.commands, cmd)
+			m.NewViewport(command)
 			if err != nil {
 				log.Fatal("Can't create new Command!", err)
 			}
 			// TODO: we also need to capture its output :)
 
 			m.input.Reset()
-			return m, tea.Sequence(tea.Batch(cmd.Run, CommandOutputToMessage(cmd.Stdout())))
+			m.input.Blur()
+			return m, func() tea.Msg { cmd.Run(); return CommandDoneMsg(cmd) }
 		}
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 
-	case CommandOutputMsg:
-		m.commandView.SetContent(string(msg))
-		m.commandView.GotoTop()
-		m.input.Reset()
-		//m.outputs = append(m.outputs, string(msg))
-		return m, nil
-
 	case tea.WindowSizeMsg:
+		log.Print("Resizing")
 		m.Height = msg.Height
 		m.Width = msg.Width
 		//m.input, cmd = m.input.Update(msg)
-		m.commandView.SetHeight(msg.Height - lipgloss.Height(m.input.View()))
-		m.commandView.SetWidth(msg.Width)
+		//m.commandView.SetHeight(msg.Height - lipgloss.Height(m.input.View()))
+		// TODO: Also set the height (Also set the height?)
+		for _, el := range m.viewports {
+			el.SetWidth(msg.Width)
+		}
 		m.input.SetWidth(m.Width)
 		return m, nil
 
 	// Fanos
 	// TODO: Should be cast to CommandDone?
-	case fanos.CommandDoneMsg:
+	case CommandDoneMsg:
+		log.Print("Command done!")
 		m.input.Prompt = getPrompt(m.shell)
+		return m, m.input.Focus()
+
+	// TODO: Should be cast to CommandDone?
+	case tea.EnvMsg:
+		log.Print("Got env")
 		return m, nil
 
 	default:
@@ -219,16 +227,9 @@ func main() {
 	ti.CharLimit = 156
 	ti.SetWidth(20)
 	ti.Prompt = getPrompt(s)
-	commandView := viewport.New(
-		viewport.WithWidth(20),
-		viewport.WithHeight(20),
-	)
-	commandView.YPosition = 0
-	commandView.FillHeight = false
 	model := &model{
-		input:       ti,
-		shell:       s,
-		commandView: commandView,
+		input: ti,
+		shell: s,
 	}
 	defer model.shell.Cancel()
 
@@ -245,16 +246,14 @@ func main() {
 
 func getPrompt(shell shell.Shell) string {
 	// TODO: this should also work in osh :D
+	log.Print("Getting prompt")
 	command, err := shell.Command("pwd | sed \"s|$[ENV.HOME]|~|\"", &pty.Winsize{1, 100, 5, 5})
 	if err != nil {
 		return ""
 	}
-	buf := new(bytes.Buffer)
-	var wg sync.WaitGroup
-	stdout := command.Stdout()
-	wg.Go(func() { io.Copy(buf, stdout) })
 	command.Run() // we don't care about the message
-	wg.Wait()
+	command.Wait()
+	log.Print("Got prompt")
 
-	return strings.ReplaceAll(buf.String(), "\n", "") + " $ "
+	return strings.ReplaceAll(command.Stdout(), "\n", "") + " $ "
 }

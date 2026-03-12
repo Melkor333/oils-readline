@@ -3,9 +3,7 @@ package fanos
 import (
 	"context"
 	_ "embed"
-	"io"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 
@@ -110,15 +108,19 @@ func TestCommand_Run(t *testing.T) {
 			command, err := s.Command(tt.args.command, &pty.Winsize{1, 100, 100, 100})
 			// We don't care about the output. we could make sure it's the same command, though
 			command.Run()
+			command.Wait()
 
-			var stdout, stderr strings.Builder
-			io.Copy(&stdout, command.Stdout())
-			if stdout.String() != tt.stdout {
-				t.Errorf("stdout doesn't match! got %v, wanted %v", stdout.String(), tt.stdout)
+			if command.Stdout() != tt.stdout {
+				t.Errorf("stdout doesn't match! got '%q', wanted '%q'", command.Stdout(), tt.stdout)
 			}
-			io.Copy(&stderr, command.Stderr())
-			if stderr.String() != tt.stderr {
-				t.Errorf("stderr doesn't match! got %v, wanted %v", stderr.String(), tt.stderr)
+			if command.Stdout() != tt.stdout {
+				t.Errorf("stdout doesn't match on second read: got '%q', wanted '%q'", command.Stdout(), tt.stdout)
+			}
+			if command.Stderr() != tt.stderr {
+				t.Errorf(`stderr doesn't match! got: '%q' wanted '%q'`, command.Stderr(), tt.stderr)
+			}
+			if command.Stderr() != tt.stderr {
+				t.Errorf(`stderr doesn't match on second read: '%q' wanted '%q'`, command.Stderr(), tt.stderr)
 			}
 		})
 	}

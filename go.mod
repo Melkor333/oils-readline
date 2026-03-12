@@ -7,17 +7,18 @@ go 1.26.1
 require (
 	charm.land/bubbles/v2 v2.0.0
 	charm.land/bubbletea/v2 v2.0.2
+	charm.land/lipgloss/v2 v2.0.1
 	github.com/chalk-ai/bubbline v1.0.11
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/creack/pty v1.1.24
 	github.com/danyspin97/tree-sitter-ysh v0.0.0-20251125165730-bb2e404f293b
+	github.com/mcpherrinm/multireader v0.0.0-20210209030331-ecd0fad39ad6
 	github.com/tree-sitter/go-tree-sitter v0.25.0
 	go.gopad.dev/go-tree-sitter-highlight v0.0.0-20241203223050-3ffb64c3a650
 	golang.org/x/term v0.40.0
 )
 
 require (
-	charm.land/lipgloss/v2 v2.0.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/bubbles v1.0.0 // indirect
