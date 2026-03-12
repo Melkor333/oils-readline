@@ -16,10 +16,10 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	//"encoding/json"
 	"flag"
@@ -178,6 +178,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Fanos
 	// TODO: Should be cast to CommandDone?
 	case fanos.CommandDoneMsg:
+		m.input.Prompt = getPrompt(m.shell)
 		return m, nil
 
 	default:
@@ -217,6 +218,7 @@ func main() {
 	ti.Focus()
 	ti.CharLimit = 156
 	ti.SetWidth(20)
+	ti.Prompt = getPrompt(s)
 	commandView := viewport.New(
 		viewport.WithWidth(20),
 		viewport.WithHeight(20),
@@ -248,11 +250,11 @@ func getPrompt(shell shell.Shell) string {
 		return ""
 	}
 	buf := new(bytes.Buffer)
-	command.SetStdout(buf)
-	command.SetStdin(bytes.NewBuffer(nil))
+	var wg sync.WaitGroup
+	stdout := command.Stdout()
+	wg.Go(func() { io.Copy(buf, stdout) })
 	command.Run() // we don't care about the message
+	wg.Wait()
 
-	return strings.ReplaceAll(buf.String(), "\r\n", "") + " $ "
+	return strings.ReplaceAll(buf.String(), "\n", "") + " $ "
 }
-
-var runCancel context.CancelFunc = func() {}
