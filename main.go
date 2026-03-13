@@ -30,7 +30,6 @@ import (
 	//  TODO: Once we have chroma highlighting. (Vibecode chroma highlighter from vim highlighter/treesitter maybe?)
 	// editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 	"charm.land/bubbles/v2/textinput"
-	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 
 	"log"
@@ -94,59 +93,22 @@ var (
 )
 
 type model struct {
-	shell           shell.Shell
-	input           textinput.Model
-	commands        []shell.Command
-	viewports       []viewport.Model
-	focusedViewport int // -1 = input focused, 0+ = viewport index
-	Height          int
-	Width           int
-	highlighter     Highlighter
-	program         *tea.Program
+	shell       shell.Shell
+	input       textinput.Model
+	history     *history
+	Height      int
+	Width       int
+	highlighter Highlighter
+	program     *tea.Program
 }
 
 func (m *model) Init() tea.Cmd {
 	return nil
 }
 
-func (m *model) NewViewport() {
-	commandView := viewport.New(
-		viewport.WithWidth(m.Width),
-	)
-	commandView.YPosition = 0
-	commandView.FillHeight = false
-	m.viewports = append(m.viewports, commandView)
-	m.updateViewportContent(len(m.viewports) - 1)
-	m.updateGutters()
-}
-
-func (m *model) updateViewportContent(i int) {
-	if i < 0 || i >= len(m.commands) {
-		return
-	}
-	command := m.commands[i]
-	content := command.CommandLine() + "\n" + strings.Trim(command.Stdout(), "\r\n")
-	m.viewports[i].SetHeight(lipgloss.Height(content))
-	m.viewports[i].SetContent(content)
-}
-
-func (m *model) updateGutters() {
-	for i := range m.viewports {
-		gutStyle := brightGreenGut
-		if m.focusedViewport == i {
-			gutStyle = darkGreenGut
-		}
-		m.viewports[i].LeftGutterFunc = func(ctx viewport.GutterContext) string {
-			return gutStyle.Render("│")
-		}
-	}
-}
-
 func (m *model) View() tea.View {
 	var strs []string
-	for i := range m.viewports {
-		strs = append(strs, m.viewports[i].View())
-	}
+	strs = append(strs, m.history.View())
 	strs = append(strs, strings.Trim(m.input.View(), "\r\n"))
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, strs...))
 }
@@ -158,6 +120,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	log.Printf("%T", msg)
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Let history handle keys when focused
+		cmd, handled := m.history.Update(msg)
+		if handled {
+			return m, cmd
+		}
+
 		switch msg.String() {
 		case "ctrl+c":
 			log.Println("ctrl+c!")
@@ -169,49 +137,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			return m, nil
-		case "ctrl+space":
-			if m.focusedViewport >= 0 {
-				m.focusedViewport = -1
-				m.updateGutters()
-				return m, m.input.Focus()
-			} else if len(m.viewports) > 0 {
-				m.input.Blur()
-				if m.focusedViewport == -1 {
-					m.focusedViewport = len(m.viewports) - 1
-				}
-				m.updateGutters()
-				return m, nil
-			}
-			return m, nil
-		case "esc":
-			if m.focusedViewport >= 0 {
-				m.focusedViewport = -1
-				m.updateGutters()
-				return m, m.input.Focus()
-			}
-		case "up", "k":
-			if m.focusedViewport >= 0 && len(m.viewports) > 0 {
-				if m.focusedViewport > 0 {
-					m.focusedViewport--
-					m.updateGutters()
-				}
-				return m, nil
-			}
-		case "down", "j":
-			if m.focusedViewport >= 0 && len(m.viewports) > 0 {
-				if m.focusedViewport < len(m.viewports)-1 {
-					m.focusedViewport++
-					m.updateGutters()
-				}
-				return m, nil
-			}
 		case "enter":
-			if m.focusedViewport >= 0 {
-				return m, nil
-			}
-			// Handle editline messages
-			//TODO: Other exec types
-			//if m.execType == Blocking
 			command := m.input.Value()
 			if len(command) == 0 {
 				return m, nil
@@ -219,14 +145,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			size, _ := pty.GetsizeFull(os.Stdin)
 			cmd, err := m.shell.Command(command, size)
-			m.commands = append(m.commands, cmd)
-			m.NewViewport()
 			if err != nil {
 				log.Fatal("Can't create new Command!", err)
 			}
+
 			cmd.SetOnStdout(func() { m.program.Send(StdoutMsg{cmd}) })
 			cmd.SetOnStderr(func() { m.program.Send(StderrMsg{cmd}) })
-			// TODO: we also need to capture its output :)
+
+			m.history.Add(cmd)
 
 			m.input.Reset()
 			m.input.Blur()
@@ -239,42 +165,22 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		log.Print("Resizing")
 		m.Height = msg.Height
 		m.Width = msg.Width
-		//m.input, cmd = m.input.Update(msg)
-		//m.commandView.SetHeight(msg.Height - lipgloss.Height(m.input.View()))
-		// TODO: Also set the height (Also set the height?)
-		for _, el := range m.viewports {
-			el.SetWidth(msg.Width)
-		}
+		m.history.Update(msg)
 		m.input.SetWidth(m.Width)
 		return m, nil
 
-	// Fanos
-	// TODO: Should be cast to CommandDone?
 	case CommandDoneMsg:
 		log.Print("Command done!")
 		m.input.Prompt = getPrompt(m.shell)
-		m.focusedViewport = -1
-		m.updateGutters()
+		m.history.Update(msg)
 		return m, m.input.Focus()
 
-	case StdoutMsg:
-		log.Print("Stdout output received")
-		for i, c := range m.commands {
-			if c == msg.Cmd {
-				m.updateViewportContent(i)
-				break
-			}
-		}
+	case StdoutMsg, StderrMsg:
+		m.history.Update(msg)
 		return m, nil
 
-	case StderrMsg:
-		log.Print("Stderr output received")
-		for i, c := range m.commands {
-			if c == msg.Cmd {
-				m.updateViewportContent(i)
-				break
-			}
-		}
+	case focusInputMsg:
+		m.input.Focus()
 		return m, nil
 
 	// TODO: Should be cast to CommandDone?
@@ -321,14 +227,15 @@ func main() {
 	ti.SetWidth(20)
 	ti.Prompt = getPrompt(s)
 	model := &model{
-		input:           ti,
-		shell:           s,
-		focusedViewport: -1,
+		input:   ti,
+		shell:   s,
+		history: newHistory(),
 	}
 	defer model.shell.Cancel()
 
 	p := tea.NewProgram(model)
 	model.program = p
+	model.history.program = p
 	go func() {
 		model.shell.Wait()
 		p.Send(tea.Quit)
