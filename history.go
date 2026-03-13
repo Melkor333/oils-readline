@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"strings"
 
@@ -12,17 +13,26 @@ import (
 	"github.com/Melkor333/oils-readline/shell"
 )
 
+var (
+	historyFile = flag.String("historyFile", "$HOME/.local/share/oils/readline-history.json", "Path to the history file")
+)
+
 type history struct {
 	commands        []shell.Command
-	viewports       []viewport.Model
-	focusedViewport int // -1 = nothing focused, 0+ = viewport index
+	views           []viewport.Model
+	focusedViewport int
+	isFocussed      bool
 	Width           int
-	program         *tea.Program
 }
+
+var (
+	brightGreenGut = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // bright green
+	darkGreenGut   = lipgloss.NewStyle().Foreground(lipgloss.Color("22")) // dark green
+)
 
 func newHistory() *history {
 	return &history{
-		focusedViewport: -1,
+		focusedViewport: 0,
 	}
 }
 
@@ -30,87 +40,73 @@ func (h *history) Init() tea.Cmd {
 	return nil
 }
 
-func (h *history) Update(msg tea.Msg) (tea.Cmd, bool) {
+func (h *history) Update(msg tea.Msg) (shell.Widget, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+space":
-			if h.focusedViewport >= 0 {
-				h.focusedViewport = -1
-				h.updateGutters()
-				return h.inputFocusCmd(), true
-			} else if len(h.viewports) > 0 {
-				if h.focusedViewport == -1 {
-					h.focusedViewport = len(h.viewports) - 1
-				}
-				h.updateGutters()
-				return nil, true
-			}
-			return nil, true
-		case "esc":
-			if h.focusedViewport >= 0 {
-				h.focusedViewport = -1
-				h.updateGutters()
-				return h.inputFocusCmd(), true
-			}
-		case "up", "k":
-			if h.focusedViewport >= 0 && len(h.viewports) > 0 {
-				if h.focusedViewport > 0 {
-					h.focusedViewport--
-					h.updateGutters()
-				}
-				return nil, true
-			}
-		case "down", "j":
-			if h.focusedViewport >= 0 && len(h.viewports) > 0 {
-				if h.focusedViewport < len(h.viewports)-1 {
-					h.focusedViewport++
-					h.updateGutters()
-				}
-				return nil, true
-			}
-		case "enter":
-			if h.focusedViewport >= 0 {
-				return nil, true
-			}
+		// We don't handle any keyboard input unless focussed!
+		if !h.isFocussed {
+			return h, nil
 		}
+		switch msg.String() {
+		case "up", "k":
+			if h.focusedViewport > 0 {
+				h.views[h.focusedViewport].LeftGutterFunc = unselected
+				h.focusedViewport--
+				h.views[h.focusedViewport].LeftGutterFunc = selected
+			}
+			return h, nil
+		case "down", "j":
+			if h.focusedViewport < len(h.views)-1 {
+				h.views[h.focusedViewport].LeftGutterFunc = unselected
+				h.focusedViewport++
+				h.views[h.focusedViewport].LeftGutterFunc = selected
+			}
+			return h, nil
+		case "ctrl+c":
+			return h, func() tea.Msg { return shell.RequestFocusMainMsg{} }
+		}
+
+	case shell.NewCommandMsg:
+		h.Add(msg.Cmd)
+		return h, nil
 
 	case tea.WindowSizeMsg:
 		h.Width = msg.Width
-		for _, vp := range h.viewports {
-			vp.SetWidth(msg.Width)
+		for _, view := range h.views {
+			view.SetWidth(msg.Width)
 		}
+		return h, nil
 
-	case CommandDoneMsg:
-		h.focusedViewport = -1
-		h.updateGutters()
-
-	case StdoutMsg:
+	case shell.StdoutMsg:
 		log.Print("Stdout output received")
 		for i, c := range h.commands {
 			if c == msg.Cmd {
 				h.updateViewportContent(i)
 				break
+			} else {
+				log.Printf("%q is not command %q", c, msg.Cmd)
 			}
 		}
+		return h, nil
 
-	case StderrMsg:
-		log.Print("Stderr output received")
-		for i, c := range h.commands {
-			if c == msg.Cmd {
-				h.updateViewportContent(i)
-				break
-			}
-		}
+		// TODO: A view for stderr!
+		//case shell.StderrMsg:
+		//	log.Print("Stderr output received")
+		//	for i, c := range h.commands {
+		//		if c == msg.Cmd {
+		//			h.updateViewportContent(i)
+		//			break
+		//		}
+		//	}
 	}
 
-	return nil, false
+	return h, nil
 }
 
 func (h *history) View() string {
 	var strs []string
-	for i := range h.viewports {
-		strs = append(strs, h.viewports[i].View())
+	for _, view := range h.views {
+		strs = append(strs, view.View())
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, strs...)
 }
@@ -121,16 +117,35 @@ func (h *history) Add(cmd shell.Command) {
 	commandView := viewport.New(
 		viewport.WithWidth(h.Width),
 	)
-	commandView.YPosition = 0
+	//commandView.YPosition = 0
 	commandView.FillHeight = false
-	h.viewports = append(h.viewports, commandView)
+	if len(h.views) > 0 {
+		h.views[len(h.views)-1].LeftGutterFunc = unselected
+	}
+	commandView.LeftGutterFunc = selected
+	h.views = append(h.views, commandView)
+	h.focusedViewport = len(h.views) - 1
 
-	h.updateViewportContent(len(h.viewports) - 1)
-	h.updateGutters()
+	h.updateViewportContent(len(h.views) - 1)
 }
 
-func (h *history) Focused() bool {
-	return h.focusedViewport >= 0
+func (h *history) Blur() {
+	h.views[h.focusedViewport].LeftGutterFunc = unselected
+	h.isFocussed = false
+}
+
+func (h *history) Focus() tea.Cmd {
+	h.views[h.focusedViewport].LeftGutterFunc = selected
+	h.isFocussed = true
+	return nil
+}
+
+func unselected(ctx viewport.GutterContext) string {
+	return brightGreenGut.Render("│")
+}
+
+func selected(ctx viewport.GutterContext) string {
+	return darkGreenGut.Render("│")
 }
 
 func (h *history) updateViewportContent(i int) {
@@ -139,25 +154,6 @@ func (h *history) updateViewportContent(i int) {
 	}
 	command := h.commands[i]
 	content := command.CommandLine() + "\n" + strings.Trim(command.Stdout(), "\r\n")
-	h.viewports[i].SetHeight(lipgloss.Height(content))
-	h.viewports[i].SetContent(content)
+	h.views[i].SetHeight(lipgloss.Height(content))
+	h.views[i].SetContent(content)
 }
-
-func (h *history) updateGutters() {
-	for i := range h.viewports {
-		gutStyle := brightGreenGut
-		if h.focusedViewport == i {
-			gutStyle = darkGreenGut
-		}
-		style := gutStyle
-		h.viewports[i].LeftGutterFunc = func(ctx viewport.GutterContext) string {
-			return style.Render("│")
-		}
-	}
-}
-
-func (h *history) inputFocusCmd() tea.Cmd {
-	return func() tea.Msg { return focusInputMsg{} }
-}
-
-type focusInputMsg struct{}

@@ -29,7 +29,6 @@ import (
 
 	//  TODO: Once we have chroma highlighting. (Vibecode chroma highlighter from vim highlighter/treesitter maybe?)
 	// editor "github.com/ionut-t/goeditor/adapter-bubbletea"
-	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 
 	"log"
@@ -37,15 +36,12 @@ import (
 	"github.com/Melkor333/oils-readline/fanos"
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/creack/pty"
-
-	"strings"
 )
 
 var Version = "devel"
 
 var (
 	versionFlag = flag.Bool("version", false, "Print version and exit")
-	historyFile = flag.String("historyFile", "$HOME/.local/share/oils/readline-history.json", "Path to the history file")
 )
 
 type CompletionReq struct {
@@ -81,25 +77,14 @@ const (
 
 type State int
 
-type CommandOutputErrorMsg error
-type CommandDoneMsg shell.Command
-type StdoutMsg struct{ Cmd shell.Command }
-type StderrMsg struct{ Cmd shell.Command }
-
-var (
-	promptStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))  // green
-	brightGreenGut = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // bright green
-	darkGreenGut   = lipgloss.NewStyle().Foreground(lipgloss.Color("22")) // dark green
-)
-
 type model struct {
 	shell       shell.Shell
-	input       textinput.Model
-	history     *history
 	Height      int
 	Width       int
+	widgets     []shell.Widget
 	highlighter Highlighter
 	program     *tea.Program
+	focus       int // 1 = history, 0 = prompt
 }
 
 func (m *model) Init() tea.Cmd {
@@ -108,90 +93,94 @@ func (m *model) Init() tea.Cmd {
 
 func (m *model) View() tea.View {
 	var strs []string
-	strs = append(strs, m.history.View())
-	strs = append(strs, strings.Trim(m.input.View(), "\r\n"))
+	for _, widget := range m.widgets {
+		strs = append(strs, widget.View())
+	}
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, strs...))
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// tea messages first
-	var cmd tea.Cmd
 	log.Print(msg)
 	log.Printf("%T", msg)
+	log.Printf("focus: %v", m.focus)
+
 	switch msg := msg.(type) {
+	// TODO: This should be a "widget manager"
 	case tea.KeyMsg:
-		// Let history handle keys when focused
-		cmd, handled := m.history.Update(msg)
-		if handled {
-			return m, cmd
-		}
-
 		switch msg.String() {
-		case "ctrl+c":
-			log.Println("ctrl+c!")
-			m.input.Reset()
-			return m, cmd
-		case "ctrl+d":
-			if m.input.Value() == "" {
-				m.shell.Cancel()
-				return m, tea.Quit
-			}
-			return m, nil
-		case "enter":
-			command := m.input.Value()
-			if len(command) == 0 {
-				return m, nil
-			}
-
-			size, _ := pty.GetsizeFull(os.Stdin)
-			cmd, err := m.shell.Command(command, size)
-			if err != nil {
-				log.Fatal("Can't create new Command!", err)
-			}
-
-			cmd.SetOnStdout(func() { m.program.Send(StdoutMsg{cmd}) })
-			cmd.SetOnStderr(func() { m.program.Send(StderrMsg{cmd}) })
-
-			m.history.Add(cmd)
-
-			m.input.Reset()
-			m.input.Blur()
-			return m, func() tea.Msg { cmd.Run(); return CommandDoneMsg(cmd) }
+		case "ctrl+space":
+			return m, func() tea.Msg { return shell.RequestFocusNextMsg{} }
+		case "esc":
+			return m, func() tea.Msg { return shell.RequestFocusMainMsg{} }
 		}
-		m.input, cmd = m.input.Update(msg)
-		return m, cmd
+	}
+
+	switch msg := msg.(type) {
+	case shell.RequestFocusNextMsg:
+		if m.focus > 0 {
+			m.widgets[m.focus].Blur()
+			m.focus--
+			cmd := m.widgets[m.focus].Focus()
+			return m, cmd
+		}
+		return m, nil
+	case shell.RequestFocusPrevMsg:
+		if m.focus < len(m.widgets)-1 {
+			m.widgets[m.focus].Blur()
+			m.focus++
+			cmd := m.widgets[m.focus].Focus()
+			return m, cmd
+		}
+		return m, nil
+	case shell.RequestFocusMainMsg:
+		if m.focus != len(m.widgets)-1 {
+			m.widgets[m.focus].Blur()
+			m.focus = len(m.widgets) - 1
+			cmd := m.widgets[m.focus].Focus()
+			return m, cmd
+		}
+		return m, nil
+	case CommandEnteredMsg:
+		// Run a command
+		// TODO: make each `shell` a widget as well somehow?!
+		command := msg.Text
+		if len(command) == 0 {
+			break // We still let widgets deal with it!
+		}
+
+		size, _ := pty.GetsizeFull(os.Stdin)
+		cmd, err := m.shell.Command(command, size)
+		if err != nil {
+			log.Fatal("Can't create new Command!", err)
+		}
+
+		cmd.SetOnStdout(func() { m.program.Send(shell.StdoutMsg{Cmd: cmd}) })
+		cmd.SetOnStderr(func() { m.program.Send(shell.StderrMsg{Cmd: cmd}) })
+
+		log.Print("Running command")
+		return m, tea.Batch(
+			func() tea.Msg { return shell.NewCommandMsg{Cmd: cmd} },
+			func() tea.Msg { cmd.Run(); return shell.CommandDoneMsg{Cmd: cmd} },
+		)
 
 	case tea.WindowSizeMsg:
 		log.Print("Resizing")
 		m.Height = msg.Height
 		m.Width = msg.Width
-		m.history.Update(msg)
-		m.input.SetWidth(m.Width)
-		return m, nil
-
-	case CommandDoneMsg:
-		log.Print("Command done!")
-		m.input.Prompt = getPrompt(m.shell)
-		m.history.Update(msg)
-		return m, m.input.Focus()
-
-	case StdoutMsg, StderrMsg:
-		m.history.Update(msg)
-		return m, nil
-
-	case focusInputMsg:
-		m.input.Focus()
-		return m, nil
 
 	// TODO: Should be cast to CommandDone?
 	case tea.EnvMsg:
 		log.Print("Got env")
-		return m, nil
-
-	default:
-		m.input, cmd = m.input.Update(msg)
-		return m, cmd
 	}
+
+	var cmds []tea.Cmd
+	for c, widget := range m.widgets {
+		var cmd tea.Cmd
+		m.widgets[c], cmd = widget.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func main() {
@@ -219,23 +208,15 @@ func main() {
 		log.SetOutput(io.Discard)
 	}
 
-	ti := textinput.New()
-	ti.SetVirtualCursor(true)
-	ti.Placeholder = "Enter command"
-	ti.Focus()
-	ti.CharLimit = 156
-	ti.SetWidth(20)
-	ti.Prompt = getPrompt(s)
 	model := &model{
-		input:   ti,
 		shell:   s,
-		history: newHistory(),
+		focus:   1,
+		widgets: []shell.Widget{newHistory(), newBasicPrompt(s)},
 	}
 	defer model.shell.Cancel()
 
 	p := tea.NewProgram(model)
 	model.program = p
-	model.history.program = p
 	go func() {
 		model.shell.Wait()
 		p.Send(tea.Quit)
@@ -244,18 +225,4 @@ func main() {
 		fmt.Printf("Error Running Oils-Readline: %v", err)
 		os.Exit(1)
 	}
-}
-
-func getPrompt(shell shell.Shell) string {
-	// TODO: this should also work in osh :D
-	log.Print("Getting prompt")
-	command, err := shell.Command("pwd | sed \"s|$[ENV.HOME]|~|\"", &pty.Winsize{1, 100, 5, 5})
-	if err != nil {
-		return ""
-	}
-	command.Run() // we don't care about the message
-	command.Wait()
-	log.Print("Got prompt")
-
-	return promptStyle.Render(strings.ReplaceAll(command.Stdout(), "\n", "") + " $ ")
 }

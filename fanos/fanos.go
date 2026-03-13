@@ -20,6 +20,7 @@ import (
 
 	"github.com/chalk-ai/bubbline/computil"
 	"github.com/chalk-ai/bubbline/editline"
+	"github.com/creack/pty"
 )
 
 //go:generate bash ./static-oils.sh
@@ -28,7 +29,6 @@ var embeddedOils []byte
 
 var (
 	fanosShellPath = flag.String("oil_path", "", "Path to Oil shell interpreter")
-	fifo           = flag.Bool("fifo", false, "Use named fifo instead of anonymous pipe")
 )
 
 type Shell struct {
@@ -240,4 +240,18 @@ func (s *Shell) Complete(input [][]rune, line, col int) (string, editline.Comple
 	sort.Slice(dirs, func(i, j int) bool { return strings.ToLower(dirs[i]) < strings.ToLower(dirs[j]) })
 
 	return "", editline.SimpleWordsCompletion(dirs, "file", col, start, end)
+}
+
+// TODO: Make this a somehow composable plugin?
+func (shell *Shell) GetPrompt() string {
+	log.Print("Getting prompt")
+	command, err := shell.Command("pwd | sed \"s|$[ENV.HOME]|~|\"", &pty.Winsize{1, 100, 5, 5})
+	if err != nil {
+		return ""
+	}
+	command.Run() // we don't care about the message
+	command.Wait()
+	log.Print("Got prompt")
+
+	return strings.ReplaceAll(command.Stdout(), "\n", "") + " $ "
 }

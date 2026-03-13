@@ -81,7 +81,7 @@ func TestCommand_Wait(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Command{
 				shell:       tt.fields.shell,
-				CommandLine: tt.fields.CommandLine,
+				commandline: tt.fields.CommandLine,
 				err:         tt.fields.err,
 				ctx:         tt.fields.ctx,
 				Cancel:      tt.fields.Cancel,
@@ -152,7 +152,7 @@ func TestCommand_Error(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Command{
 				shell:       tt.fields.shell,
-				CommandLine: tt.fields.CommandLine,
+				commandline: tt.fields.CommandLine,
 				err:         tt.fields.err,
 				ctx:         tt.fields.ctx,
 				Cancel:      tt.fields.Cancel,
