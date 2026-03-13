@@ -109,22 +109,29 @@ func (m *model) Init() tea.Cmd {
 	return nil
 }
 
-func (m *model) NewViewport(prompt string) {
+func (m *model) NewViewport() {
 	commandView := viewport.New(
-		viewport.WithWidth(20),
-		//viewport.WithHeight(20),
+		viewport.WithWidth(m.Width),
 	)
 	commandView.YPosition = 0
 	commandView.FillHeight = false
 	m.viewports = append(m.viewports, commandView)
+	m.updateViewportContent(len(m.viewports) - 1)
+	m.updateGutters()
 }
 
-func (m *model) View() tea.View {
-	// TODO: Show output... ;)
-	var strs []string
-	log.Print(m.commands)
-	for i, command := range m.commands {
-		log.Print(command)
+func (m *model) updateViewportContent(i int) {
+	if i < 0 || i >= len(m.commands) {
+		return
+	}
+	command := m.commands[i]
+	content := command.CommandLine() + "\n" + strings.Trim(command.Stdout(), "\r\n")
+	m.viewports[i].SetHeight(lipgloss.Height(content))
+	m.viewports[i].SetContent(content)
+}
+
+func (m *model) updateGutters() {
+	for i := range m.viewports {
 		gutStyle := brightGreenGut
 		if m.focusedViewport == i {
 			gutStyle = darkGreenGut
@@ -132,10 +139,12 @@ func (m *model) View() tea.View {
 		m.viewports[i].LeftGutterFunc = func(ctx viewport.GutterContext) string {
 			return gutStyle.Render("│")
 		}
-		content := command.CommandLine() + "\n" + strings.Trim(command.Stdout(), "\r\n")
-		m.viewports[i].SetHeight(lipgloss.Height(content))
-		m.viewports[i].SetWidth(m.Width)
-		m.viewports[i].SetContent(content)
+	}
+}
+
+func (m *model) View() tea.View {
+	var strs []string
+	for i := range m.viewports {
 		strs = append(strs, m.viewports[i].View())
 	}
 	strs = append(strs, strings.Trim(m.input.View(), "\r\n"))
@@ -163,24 +172,28 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+space":
 			if m.focusedViewport >= 0 {
 				m.focusedViewport = -1
+				m.updateGutters()
 				return m, m.input.Focus()
 			} else if len(m.viewports) > 0 {
 				m.input.Blur()
 				if m.focusedViewport == -1 {
 					m.focusedViewport = len(m.viewports) - 1
 				}
+				m.updateGutters()
 				return m, nil
 			}
 			return m, nil
 		case "esc":
 			if m.focusedViewport >= 0 {
 				m.focusedViewport = -1
+				m.updateGutters()
 				return m, m.input.Focus()
 			}
 		case "up", "k":
 			if m.focusedViewport >= 0 && len(m.viewports) > 0 {
 				if m.focusedViewport > 0 {
 					m.focusedViewport--
+					m.updateGutters()
 				}
 				return m, nil
 			}
@@ -188,6 +201,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focusedViewport >= 0 && len(m.viewports) > 0 {
 				if m.focusedViewport < len(m.viewports)-1 {
 					m.focusedViewport++
+					m.updateGutters()
 				}
 				return m, nil
 			}
@@ -206,7 +220,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			size, _ := pty.GetsizeFull(os.Stdin)
 			cmd, err := m.shell.Command(command, size)
 			m.commands = append(m.commands, cmd)
-			m.NewViewport(command)
+			m.NewViewport()
 			if err != nil {
 				log.Fatal("Can't create new Command!", err)
 			}
@@ -240,14 +254,27 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		log.Print("Command done!")
 		m.input.Prompt = getPrompt(m.shell)
 		m.focusedViewport = -1
+		m.updateGutters()
 		return m, m.input.Focus()
 
 	case StdoutMsg:
 		log.Print("Stdout output received")
+		for i, c := range m.commands {
+			if c == msg.Cmd {
+				m.updateViewportContent(i)
+				break
+			}
+		}
 		return m, nil
 
 	case StderrMsg:
 		log.Print("Stderr output received")
+		for i, c := range m.commands {
+			if c == msg.Cmd {
+				m.updateViewportContent(i)
+				break
+			}
+		}
 		return m, nil
 
 	// TODO: Should be cast to CommandDone?
