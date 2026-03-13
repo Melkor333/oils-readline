@@ -27,4 +27,6 @@ type Command interface {
 	Stderr() string
 	SetStdout(stdout io.Reader)
 	SetStdin(stdin io.Writer)
+	SetOnStdout(fn func())
+	SetOnStderr(fn func())
 }

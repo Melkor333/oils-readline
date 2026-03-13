@@ -26,6 +26,7 @@ type Command struct {
 	stdin, stdout, stderr *os.File
 	stdoutBuf, stderrBuf  *strings.Builder
 	stdoutMu, stderrMu    sync.Mutex
+	onStdout, onStderr    func()
 	// For the Client
 	tty      *os.File
 	stderrIn *os.File
@@ -59,6 +60,14 @@ func (c *Command) SetStdout(stdout io.Reader) {
 
 func (c *Command) SetStdin(stdin io.Writer) {
 	c.stdin = stdin.(*os.File) // this will panic if it's not an *os.File, maybe add error handling or make c.stdin an io.Writer instead?
+}
+
+func (c *Command) SetOnStdout(fn func()) {
+	c.onStdout = fn
+}
+
+func (c *Command) SetOnStderr(fn func()) {
+	c.onStderr = fn
 }
 
 func (shell *Shell) Command(commandLine string, size *pty.Winsize) (shell.Command, error) {
@@ -107,6 +116,9 @@ func (shell *Shell) Command(commandLine string, size *pty.Winsize) (shell.Comman
 			c.stdoutMu.Lock()
 			c.stdoutBuf.Write(buf[:count])
 			c.stdoutMu.Unlock()
+			if c.onStdout != nil {
+				c.onStdout()
+			}
 		}
 	})
 
@@ -126,6 +138,9 @@ func (shell *Shell) Command(commandLine string, size *pty.Winsize) (shell.Comman
 			c.stderrMu.Lock()
 			c.stderrBuf.Write(buf[:count])
 			c.stderrMu.Unlock()
+			if c.onStderr != nil {
+				c.onStderr()
+			}
 		}
 	})
 

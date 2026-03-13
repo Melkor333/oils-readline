@@ -84,6 +84,8 @@ type State int
 
 type CommandOutputErrorMsg error
 type CommandDoneMsg shell.Command
+type StdoutMsg struct{ Cmd shell.Command }
+type StderrMsg struct{ Cmd shell.Command }
 
 var (
 	promptStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))  // green
@@ -100,6 +102,7 @@ type model struct {
 	Height          int
 	Width           int
 	highlighter     Highlighter
+	program         *tea.Program
 }
 
 func (m *model) Init() tea.Cmd {
@@ -207,6 +210,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				log.Fatal("Can't create new Command!", err)
 			}
+			cmd.SetOnStdout(func() { m.program.Send(StdoutMsg{cmd}) })
+			cmd.SetOnStderr(func() { m.program.Send(StderrMsg{cmd}) })
 			// TODO: we also need to capture its output :)
 
 			m.input.Reset()
@@ -234,7 +239,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case CommandDoneMsg:
 		log.Print("Command done!")
 		m.input.Prompt = getPrompt(m.shell)
+		m.focusedViewport = -1
 		return m, m.input.Focus()
+
+	case StdoutMsg:
+		log.Print("Stdout output received")
+		return m, nil
+
+	case StderrMsg:
+		log.Print("Stderr output received")
+		return m, nil
 
 	// TODO: Should be cast to CommandDone?
 	case tea.EnvMsg:
@@ -287,6 +301,7 @@ func main() {
 	defer model.shell.Cancel()
 
 	p := tea.NewProgram(model)
+	model.program = p
 	go func() {
 		model.shell.Wait()
 		p.Send(tea.Quit)
