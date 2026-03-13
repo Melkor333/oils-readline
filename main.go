@@ -85,14 +85,21 @@ type State int
 type CommandOutputErrorMsg error
 type CommandDoneMsg shell.Command
 
+var (
+	promptStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))  // green
+	brightGreenGut = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // bright green
+	darkGreenGut   = lipgloss.NewStyle().Foreground(lipgloss.Color("22")) // dark green
+)
+
 type model struct {
-	shell       shell.Shell
-	input       textinput.Model
-	commands    []shell.Command
-	viewports   []viewport.Model
-	Height      int
-	Width       int
-	highlighter Highlighter
+	shell           shell.Shell
+	input           textinput.Model
+	commands        []shell.Command
+	viewports       []viewport.Model
+	focusedViewport int // -1 = input focused, 0+ = viewport index
+	Height          int
+	Width           int
+	highlighter     Highlighter
 }
 
 func (m *model) Init() tea.Cmd {
@@ -112,10 +119,21 @@ func (m *model) NewViewport(prompt string) {
 func (m *model) View() tea.View {
 	// TODO: Show output... ;)
 	var strs []string
-	for _, command := range m.commands {
+	log.Print(m.commands)
+	for i, command := range m.commands {
 		log.Print(command)
-		strs = append(strs, command.CommandLine())
-		strs = append(strs, strings.Trim(command.Stdout(), "\r\n"))
+		gutStyle := brightGreenGut
+		if m.focusedViewport == i {
+			gutStyle = darkGreenGut
+		}
+		m.viewports[i].LeftGutterFunc = func(ctx viewport.GutterContext) string {
+			return gutStyle.Render("│")
+		}
+		content := command.CommandLine() + "\n" + strings.Trim(command.Stdout(), "\r\n")
+		m.viewports[i].SetHeight(lipgloss.Height(content))
+		m.viewports[i].SetWidth(m.Width)
+		m.viewports[i].SetContent(content)
+		strs = append(strs, m.viewports[i].View())
 	}
 	strs = append(strs, strings.Trim(m.input.View(), "\r\n"))
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, strs...))
@@ -139,7 +157,41 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			return m, nil
+		case "ctrl+space":
+			if m.focusedViewport >= 0 {
+				m.focusedViewport = -1
+				return m, m.input.Focus()
+			} else if len(m.viewports) > 0 {
+				m.input.Blur()
+				if m.focusedViewport == -1 {
+					m.focusedViewport = len(m.viewports) - 1
+				}
+				return m, nil
+			}
+			return m, nil
+		case "esc":
+			if m.focusedViewport >= 0 {
+				m.focusedViewport = -1
+				return m, m.input.Focus()
+			}
+		case "up", "k":
+			if m.focusedViewport >= 0 && len(m.viewports) > 0 {
+				if m.focusedViewport > 0 {
+					m.focusedViewport--
+				}
+				return m, nil
+			}
+		case "down", "j":
+			if m.focusedViewport >= 0 && len(m.viewports) > 0 {
+				if m.focusedViewport < len(m.viewports)-1 {
+					m.focusedViewport++
+				}
+				return m, nil
+			}
 		case "enter":
+			if m.focusedViewport >= 0 {
+				return m, nil
+			}
 			// Handle editline messages
 			//TODO: Other exec types
 			//if m.execType == Blocking
@@ -228,8 +280,9 @@ func main() {
 	ti.SetWidth(20)
 	ti.Prompt = getPrompt(s)
 	model := &model{
-		input: ti,
-		shell: s,
+		input:           ti,
+		shell:           s,
+		focusedViewport: -1,
 	}
 	defer model.shell.Cancel()
 
@@ -255,5 +308,5 @@ func getPrompt(shell shell.Shell) string {
 	command.Wait()
 	log.Print("Got prompt")
 
-	return strings.ReplaceAll(command.Stdout(), "\n", "") + " $ "
+	return promptStyle.Render(strings.ReplaceAll(command.Stdout(), "\n", "") + " $ ")
 }
