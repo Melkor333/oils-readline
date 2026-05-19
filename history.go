@@ -40,9 +40,9 @@ func (h *history) Init() tea.Cmd {
 	return nil
 }
 
-func (h *history) Update(msg tea.Msg) (shell.Widget, tea.Cmd) {
+func (h *history) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		// We don't handle any keyboard input unless focussed!
 		if !h.isFocussed {
 			return h, nil
@@ -89,6 +89,14 @@ func (h *history) Update(msg tea.Msg) (shell.Widget, tea.Cmd) {
 		}
 		return h, nil
 
+	case shell.BlurMsg:
+		h.views[h.focusedViewport].LeftGutterFunc = unselected
+		h.isFocussed = false
+
+	case shell.FocusMsg:
+		h.views[h.focusedViewport].LeftGutterFunc = selected
+		h.isFocussed = true
+		return h, nil
 		// TODO: A view for stderr!
 		//case shell.StderrMsg:
 		//	log.Print("Stderr output received")
@@ -103,12 +111,12 @@ func (h *history) Update(msg tea.Msg) (shell.Widget, tea.Cmd) {
 	return h, nil
 }
 
-func (h *history) View() string {
+func (h *history) View() tea.View {
 	var strs []string
 	for _, view := range h.views {
 		strs = append(strs, view.View())
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, strs...)
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, strs...))
 }
 
 func (h *history) Add(cmd shell.Command) {
@@ -127,17 +135,6 @@ func (h *history) Add(cmd shell.Command) {
 	h.focusedViewport = len(h.views) - 1
 
 	h.updateViewportContent(len(h.views) - 1)
-}
-
-func (h *history) Blur() {
-	h.views[h.focusedViewport].LeftGutterFunc = unselected
-	h.isFocussed = false
-}
-
-func (h *history) Focus() tea.Cmd {
-	h.views[h.focusedViewport].LeftGutterFunc = selected
-	h.isFocussed = true
-	return nil
 }
 
 func unselected(ctx viewport.GutterContext) string {

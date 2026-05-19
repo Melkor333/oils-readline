@@ -81,7 +81,7 @@ type model struct {
 	shell       shell.Shell
 	Height      int
 	Width       int
-	widgets     []shell.Widget
+	models      []tea.Model
 	highlighter Highlighter
 	program     *tea.Program
 	focus       int // 1 = history, 0 = prompt
@@ -93,54 +93,51 @@ func (m *model) Init() tea.Cmd {
 
 func (m *model) View() tea.View {
 	var strs []string
-	for _, widget := range m.widgets {
-		strs = append(strs, widget.View())
+	for _, model := range m.models {
+		strs = append(strs, model.View().Content)
 	}
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, strs...))
 }
 
+func (m *model) updateChild(i int, msg tea.Msg) (cmd tea.Cmd) {
+	m.models[i], cmd = m.models[i].Update(msg)
+	return
+}
+
+func (m *model) updateFocus(i int) (tea.Model, tea.Cmd) {
+	old := m.focus
+	if i >= len(m.models) {
+		m.focus = 0
+	} else if i < 0 {
+		m.focus = len(m.models) - 1
+	} else {
+		m.focus = i
+	}
+	return m, tea.Batch(m.updateChild(old, shell.BlurMsg{}), m.updateChild(m.focus, shell.FocusMsg{}))
+}
+
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// tea messages first
-	log.Print(msg)
-	log.Printf("%T", msg)
-	log.Printf("focus: %v", m.focus)
+	//log.Print(msg)
+	//log.Printf("%T", msg)
+	//log.Printf("focus: %v", m.focus)
 
 	switch msg := msg.(type) {
 	// TODO: This should be a "widget manager"
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+space":
-			return m, func() tea.Msg { return shell.RequestFocusNextMsg{} }
+			return m.updateFocus(m.focus + 1)
 		case "esc":
-			return m, func() tea.Msg { return shell.RequestFocusMainMsg{} }
+			return m.updateFocus(len(m.models) - 1)
 		}
-	}
 
-	switch msg := msg.(type) {
 	case shell.RequestFocusNextMsg:
-		if m.focus > 0 {
-			m.widgets[m.focus].Blur()
-			m.focus--
-			cmd := m.widgets[m.focus].Focus()
-			return m, cmd
-		}
-		return m, nil
+		return m.updateFocus(m.focus + 1)
 	case shell.RequestFocusPrevMsg:
-		if m.focus < len(m.widgets)-1 {
-			m.widgets[m.focus].Blur()
-			m.focus++
-			cmd := m.widgets[m.focus].Focus()
-			return m, cmd
-		}
-		return m, nil
+		return m.updateFocus(m.focus - 1)
 	case shell.RequestFocusMainMsg:
-		if m.focus != len(m.widgets)-1 {
-			m.widgets[m.focus].Blur()
-			m.focus = len(m.widgets) - 1
-			cmd := m.widgets[m.focus].Focus()
-			return m, cmd
-		}
-		return m, nil
+		return m.updateFocus(len(m.models))
 	case CommandEnteredMsg:
 		// Run a command
 		// TODO: make each `shell` a widget as well somehow?!
@@ -175,9 +172,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmds []tea.Cmd
-	for c, widget := range m.widgets {
+	for c, widget := range m.models {
 		var cmd tea.Cmd
-		m.widgets[c], cmd = widget.Update(msg)
+		m.models[c], cmd = widget.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 	return m, tea.Batch(cmds...)
@@ -209,9 +206,9 @@ func main() {
 	}
 
 	model := &model{
-		shell:   s,
-		focus:   1,
-		widgets: []shell.Widget{newHistory(), newBasicPrompt(s)},
+		shell:  s,
+		focus:  1,
+		models: []tea.Model{newHistory(), newBasicPrompt(s)},
 	}
 	defer model.shell.Cancel()
 

@@ -42,9 +42,9 @@ func (bp *basicPrompt) Init() tea.Cmd {
 	return nil
 }
 
-func (bp *basicPrompt) Update(msg tea.Msg) (shell.Widget, tea.Cmd) {
+func (bp *basicPrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		// don't handle keyboard inputs if we're not focussed!
 		if !bp.input.Focused() {
 			return bp, nil
@@ -76,6 +76,12 @@ func (bp *basicPrompt) Update(msg tea.Msg) (shell.Widget, tea.Cmd) {
 	case shell.CommandDoneMsg:
 		bp.input.Prompt = promptStyle.Render(bp.shell.GetPrompt())
 		return bp, bp.input.Focus()
+
+	case shell.BlurMsg:
+		bp.input.Blur()
+
+	case shell.FocusMsg:
+		return bp, bp.input.Focus()
 	}
 
 	var cmd tea.Cmd
@@ -84,14 +90,6 @@ func (bp *basicPrompt) Update(msg tea.Msg) (shell.Widget, tea.Cmd) {
 	return bp, cmd
 }
 
-func (bp *basicPrompt) View() string {
-	return strings.Trim(bp.input.View(), "\r\n")
-}
-
-func (bp *basicPrompt) Focus() tea.Cmd {
-	return bp.input.Focus()
-}
-
-func (bp *basicPrompt) Blur() {
-	bp.input.Blur()
+func (bp *basicPrompt) View() tea.View {
+	return tea.NewView(strings.Trim(bp.input.View(), "\r\n"))
 }

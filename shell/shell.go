@@ -4,12 +4,13 @@ import (
 	"io"
 	"os"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/chalk-ai/bubbline/editline"
 	"github.com/creack/pty"
 )
 
 type CommandOutputErrorMsg error
+type BlurMsg struct{}
+type FocusMsg struct{}
 type NewCommandMsg struct{ Cmd Command }
 type CommandDoneMsg struct{ Cmd Command }
 type StdoutMsg struct{ Cmd Command }
@@ -17,14 +18,6 @@ type StderrMsg struct{ Cmd Command }
 type RequestFocusPrevMsg struct{}
 type RequestFocusNextMsg struct{}
 type RequestFocusMainMsg struct{} // Go to main
-
-type Widget interface {
-	Init() tea.Cmd
-	Update(tea.Msg) (Widget, tea.Cmd)
-	View() string
-	Blur()
-	Focus() tea.Cmd // because some set a virtual cursor
-}
 
 type Shell interface {
 	//StdIO(*os.File, *os.File, *os.File) error
