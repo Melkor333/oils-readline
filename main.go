@@ -24,17 +24,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	//"github.com/charmbracelet/lipgloss"
-	//"github.com/muesli/reflow/wrap"
-
 	//  TODO: Once we have chroma highlighting. (Vibecode chroma highlighter from vim highlighter/treesitter maybe?)
 	// editor "github.com/ionut-t/goeditor/adapter-bubbletea"
-	"charm.land/lipgloss/v2"
 
 	"log"
 
 	"github.com/Melkor333/oils-readline/fanos"
 	"github.com/Melkor333/oils-readline/shell"
+	"github.com/Melkor333/oils-readline/tiling"
 	"github.com/creack/pty"
 )
 
@@ -78,13 +75,13 @@ const (
 type State int
 
 type model struct {
-	shell       shell.Shell
-	Height      int
-	Width       int
-	models      []tea.Model
-	highlighter Highlighter
-	program     *tea.Program
-	focus       int // 1 = history, 0 = prompt
+	shell  shell.Shell
+	Height int
+	Width  int
+	layout *tiling.Model
+	//highlighter Highlighter
+	program *tea.Program
+	focus   int // 1 = history, 0 = prompt
 }
 
 func (m *model) Init() tea.Cmd {
@@ -92,28 +89,9 @@ func (m *model) Init() tea.Cmd {
 }
 
 func (m *model) View() tea.View {
-	var strs []string
-	for _, model := range m.models {
-		strs = append(strs, model.View().Content)
-	}
-	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, strs...))
-}
-
-func (m *model) updateChild(i int, msg tea.Msg) (cmd tea.Cmd) {
-	m.models[i], cmd = m.models[i].Update(msg)
-	return
-}
-
-func (m *model) updateFocus(i int) (tea.Model, tea.Cmd) {
-	old := m.focus
-	if i >= len(m.models) {
-		m.focus = 0
-	} else if i < 0 {
-		m.focus = len(m.models) - 1
-	} else {
-		m.focus = i
-	}
-	return m, tea.Batch(m.updateChild(old, shell.BlurMsg{}), m.updateChild(m.focus, shell.FocusMsg{}))
+	v := m.layout.View()
+	v.AltScreen = true
+	return v
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -123,21 +101,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	//log.Printf("focus: %v", m.focus)
 
 	switch msg := msg.(type) {
-	// TODO: This should be a "widget manager"
-	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "ctrl+space":
-			return m.updateFocus(m.focus + 1)
-		case "esc":
-			return m.updateFocus(len(m.models) - 1)
-		}
-
-	case shell.RequestFocusNextMsg:
-		return m.updateFocus(m.focus + 1)
-	case shell.RequestFocusPrevMsg:
-		return m.updateFocus(m.focus - 1)
-	case shell.RequestFocusMainMsg:
-		return m.updateFocus(len(m.models))
 	case CommandEnteredMsg:
 		// Run a command
 		// TODO: make each `shell` a widget as well somehow?!
@@ -171,13 +134,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		log.Print("Got env")
 	}
 
-	var cmds []tea.Cmd
-	for c, widget := range m.models {
-		var cmd tea.Cmd
-		m.models[c], cmd = widget.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-	return m, tea.Batch(cmds...)
+	l, cmd := m.layout.Update(msg)
+	m.layout = l.(*tiling.Model)
+	return m, cmd
 }
 
 func main() {
@@ -206,10 +165,10 @@ func main() {
 	}
 
 	model := &model{
-		shell:  s,
-		focus:  1,
-		models: []tea.Model{newHistory(), newBasicPrompt(s)},
+		shell: s,
+		focus: 1,
 	}
+	model.layout = tiling.NewModel(newBasicPrompt(s), newHistory())
 	defer model.shell.Cancel()
 
 	p := tea.NewProgram(model)

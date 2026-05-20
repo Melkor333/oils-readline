@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/Melkor333/oils-readline/shell"
+	"github.com/Melkor333/oils-readline/tiling"
 )
 
 var (
@@ -63,7 +64,7 @@ func (h *history) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return h, nil
 		case "ctrl+c":
-			return h, func() tea.Msg { return shell.RequestFocusMainMsg{} }
+			return h, func() tea.Msg { return tiling.RequestFocusMainMsg{} }
 		}
 
 	case shell.NewCommandMsg:
@@ -89,11 +90,11 @@ func (h *history) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
-	case shell.BlurMsg:
+	case tiling.BlurMsg:
 		h.views[h.focusedViewport].LeftGutterFunc = unselected
 		h.isFocussed = false
 
-	case shell.FocusMsg:
+	case tiling.FocusMsg:
 		h.views[h.focusedViewport].LeftGutterFunc = selected
 		h.isFocussed = true
 		return h, nil

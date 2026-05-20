@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/Melkor333/oils-readline/shell"
+	"github.com/Melkor333/oils-readline/tiling"
 )
 
 var (
@@ -77,10 +78,10 @@ func (bp *basicPrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		bp.input.Prompt = promptStyle.Render(bp.shell.GetPrompt())
 		return bp, bp.input.Focus()
 
-	case shell.BlurMsg:
+	case tiling.BlurMsg:
 		bp.input.Blur()
 
-	case shell.FocusMsg:
+	case tiling.FocusMsg:
 		return bp, bp.input.Focus()
 	}
 
