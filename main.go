@@ -168,7 +168,8 @@ func main() {
 		shell: s,
 		focus: 1,
 	}
-	model.layout = tiling.NewModel(newBasicPrompt(s), newHistory())
+	model.layout = tiling.NewModel(newHistory(), newBasicPrompt(s))
+	model.layout.SetSplitMode(tiling.SplitHorizontal)
 	defer model.shell.Cancel()
 
 	p := tea.NewProgram(model)
