@@ -123,6 +123,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			return m.updateFocus(len(m.children) - 1)
 		}
+		return m, m.updateChild(m.focus, msg)
 
 	case RequestFocusNextMsg:
 		return m.updateFocus(m.focus + 1)

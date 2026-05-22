@@ -44,10 +44,6 @@ func (h *history) Init() tea.Cmd {
 func (h *history) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		// We don't handle any keyboard input unless focussed!
-		if !h.isFocussed {
-			return h, nil
-		}
 		switch msg.String() {
 		case "up", "k":
 			if h.focusedViewport > 0 {
@@ -91,10 +87,16 @@ func (h *history) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case tiling.BlurMsg:
+		if len(h.views) == 0 {
+			return h, nil
+		}
 		h.views[h.focusedViewport].LeftGutterFunc = unselected
 		h.isFocussed = false
 
 	case tiling.FocusMsg:
+		if len(h.views) == 0 {
+			return h, nil
+		}
 		h.views[h.focusedViewport].LeftGutterFunc = selected
 		h.isFocussed = true
 		return h, nil
