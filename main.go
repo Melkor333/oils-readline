@@ -32,7 +32,6 @@ import (
 	"github.com/Melkor333/oils-readline/fanos"
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/Melkor333/oils-readline/tiling"
-	"github.com/creack/pty"
 )
 
 var Version = "devel"
@@ -72,73 +71,6 @@ const (
 	AltMode
 )
 
-type State int
-
-type model struct {
-	shell  shell.Shell
-	Height int
-	Width  int
-	layout *tiling.Model
-	//highlighter Highlighter
-	program *tea.Program
-	focus   int // 1 = history, 0 = prompt
-}
-
-func (m *model) Init() tea.Cmd {
-	return nil
-}
-
-func (m *model) View() tea.View {
-	v := m.layout.View()
-	v.AltScreen = true
-	return v
-}
-
-func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// tea messages first
-	//log.Print(msg)
-	//log.Printf("%T", msg)
-	//log.Printf("focus: %v", m.focus)
-
-	switch msg := msg.(type) {
-	case CommandEnteredMsg:
-		// Run a command
-		// TODO: make each `shell` a widget as well somehow?!
-		command := msg.Text
-		if len(command) == 0 {
-			break // We still let widgets deal with it!
-		}
-
-		size, _ := pty.GetsizeFull(os.Stdin)
-		cmd, err := m.shell.Command(command, size)
-		if err != nil {
-			log.Fatal("Can't create new Command!", err)
-		}
-
-		cmd.SetOnStdout(func() { m.program.Send(shell.StdoutMsg{Cmd: cmd}) })
-		cmd.SetOnStderr(func() { m.program.Send(shell.StderrMsg{Cmd: cmd}) })
-
-		log.Print("Running command")
-		return m, tea.Batch(
-			func() tea.Msg { return shell.NewCommandMsg{Cmd: cmd} },
-			func() tea.Msg { cmd.Run(); return shell.CommandDoneMsg{Cmd: cmd} },
-		)
-
-	case tea.WindowSizeMsg:
-		log.Print("Resizing")
-		m.Height = msg.Height
-		m.Width = msg.Width
-
-	// TODO: Should be cast to CommandDone?
-	case tea.EnvMsg:
-		log.Print("Got env")
-	}
-
-	l, cmd := m.layout.Update(msg)
-	m.layout = l.(*tiling.Model)
-	return m, cmd
-}
-
 func main() {
 	flag.Parse()
 
@@ -164,20 +96,17 @@ func main() {
 		log.SetOutput(io.Discard)
 	}
 
-	model := &model{
-		shell: s,
-		focus: 1,
-	}
-	model.layout = tiling.NewModel(newHistory(), newBasicPrompt(s))
-	model.layout.SetSplitMode(tiling.SplitHorizontal)
-	defer model.shell.Cancel()
+	model := NewModel(
+		[]shell.Shell{s},
+		[]tea.Model{newHistory(), newBasicPrompt(s)},
+	)
+
+	model.layout.Split(tiling.SplitHorizontal)
+	// TODO: Next that should be done by NewModel
+	defer model.Cancel()
 
 	p := tea.NewProgram(model)
 	model.program = p
-	go func() {
-		model.shell.Wait()
-		p.Send(tea.Quit)
-	}()
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error Running Oils-Readline: %v", err)
 		os.Exit(1)

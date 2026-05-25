@@ -1,0 +1,273 @@
+package main
+
+import (
+	"log"
+	"os"
+	"slices"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/Melkor333/oils-readline/shell"
+	"github.com/Melkor333/oils-readline/tiling"
+	"github.com/creack/pty"
+)
+
+// RemoveSelfMsg is a message that a child model can return from its Update
+// function (via a command) to request its own removal from the parent tiling
+// Model.
+
+type RequestFocusPrevMsg struct{}
+type RequestFocusNextMsg struct{}
+type RequestFocusMainMsg struct{} // Go to main
+//type BlurMsg struct{}
+//type FocusMsg struct{}
+
+// removeChildMsg is an internal message to remove a child by its unique ID.
+type RemoveSelfMsg struct{}
+type removeShellMsg struct {
+	id uint64
+}
+type removeWidgetMsg struct {
+	id uint64
+}
+
+// Widget pairs a child model with a unique ID for stable identity tracking.
+type Widget struct {
+	tea.Model
+	id uint64
+}
+type trackedShell struct {
+	shell.Shell
+	id uint64
+}
+
+type model struct {
+	shells      []trackedShell
+	shellFocus  int
+	nextShellID uint64
+
+	widgets      []Widget
+	widgetFocus  int
+	nextWidgetID uint64
+
+	layout *tiling.Layout
+	Height int
+	Width  int
+
+	//highlighter Highlighter
+	program *tea.Program
+}
+
+func NewModel(shells []shell.Shell, widgets []tea.Model) *model {
+	entries := make([]Widget, len(widgets))
+	s := make([]trackedShell, len(shells))
+	for i, c := range widgets {
+		entries[i] = Widget{c, uint64(i)}
+	}
+	for i, shell := range shells {
+		s[i] = trackedShell{shell, uint64(i)}
+	}
+	return &model{
+		shells:       s,
+		nextShellID:  uint64(len(shells)),
+		layout:       tiling.New(),
+		widgets:      entries,
+		nextWidgetID: uint64(len(widgets)),
+	}
+}
+
+// AddChild appends a child model to the end of the layout.
+// It returns the child's Init command.
+func (m *model) AddChild(child tea.Model) tea.Cmd {
+	id := m.nextWidgetID
+	m.nextWidgetID++
+	m.widgets = append(m.widgets, Widget{child, id})
+	cmd := m.updateChild(len(m.widgets), tea.BlurMsg{})
+	return tea.Batch(m.recalculateSizes(), tea.Batch(child.Init(), cmd))
+}
+
+func (m *model) AddChildAt(pos int, child tea.Model) tea.Cmd {
+	id := m.nextWidgetID
+	m.nextWidgetID++
+	m.widgets = slices.Insert(m.widgets, pos, Widget{child, id})
+	return tea.Batch(m.recalculateSizes(), child.Init())
+}
+
+type Cancellable interface {
+	Cancel()
+}
+
+func (m *model) Cancel() {
+	for _, shell := range m.shells {
+		shell.Cancel()
+	}
+	for _, w := range m.widgets {
+		if c, ok := w.Model.(Cancellable); ok {
+			c.Cancel()
+
+		}
+	}
+}
+
+func (m *model) AddShell(shell shell.Shell) tea.Cmd {
+	id := m.nextShellID
+	m.nextShellID++
+	m.shells = append(m.shells, trackedShell{shell, id})
+	return func() tea.Msg {
+		shell.Wait()
+		return removeShellMsg{uint64(id)}
+	}
+}
+
+func (m *model) RemoveChild(index int) tea.Cmd {
+	if index < 0 || index >= len(m.widgets) {
+		return nil
+	}
+	m.widgets = append(m.widgets[:index], m.widgets[index+1:]...)
+	return m.recalculateSizes()
+}
+
+// wrapChildCmd wraps a child's command to intercept RemoveSelfMsg and convert it
+// to a removeChildMsg with the correct child ID.
+func wrapChildCmd(cmd tea.Cmd, childID uint64) tea.Cmd {
+	if cmd == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		msg := cmd()
+		if _, ok := msg.(RemoveSelfMsg); ok {
+			return removeWidgetMsg{id: childID}
+		}
+		return msg
+	}
+}
+
+func (m *model) updateFocus(i int) (tea.Model, tea.Cmd) {
+	old := m.widgetFocus
+	if i >= len(m.widgets) {
+		m.widgetFocus = 0
+	} else if i < 0 {
+		m.widgetFocus = len(m.widgets) - 1
+	} else {
+		m.widgetFocus = i
+	}
+	return m, tea.Batch(m.updateChild(old, tea.BlurMsg{}), m.updateChild(m.widgetFocus, tea.FocusMsg{}))
+}
+
+func (m *model) updateChild(i int, msg tea.Msg) (cmd tea.Cmd) {
+	newM, cmd := m.widgets[i].Update(msg)
+	m.widgets[i] = Widget{newM, m.widgets[i].id}
+	return
+}
+
+func (m *model) Init() tea.Cmd {
+	var cmds []tea.Cmd
+	for i, shell := range m.shells {
+		cmds = append(cmds,
+			func() tea.Msg {
+				shell.Wait()
+				return removeShellMsg{uint64(i)}
+			})
+	}
+	for _, c := range m.widgets {
+		cmds = append(cmds, c.Init())
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *model) recalculateSizes() tea.Cmd {
+	sizes := m.layout.TileSizes(len(m.widgets))
+	var cmds []tea.Cmd
+	for i, child := range m.widgets {
+		var cmd tea.Cmd
+		m.updateChild(i, tea.WindowSizeMsg{
+			Width:  sizes[i].W,
+			Height: sizes[i].H,
+		})
+		cmds = append(cmds, wrapChildCmd(cmd, child.id))
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *model) View() tea.View {
+	var views []string
+	for _, child := range m.widgets {
+		views = append(views, child.View().Content)
+	}
+
+	// TODO: use tiling layout instead
+	v := tea.NewView(m.layout.
+		Children(views...).
+		Render())
+	v.AltScreen = true
+	return v
+}
+
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "ctrl+space":
+			return m.updateFocus(m.widgetFocus + 1)
+		case "esc":
+			return m.updateFocus(len(m.widgets) - 1)
+		case "ctrl+c":
+			return m, func() tea.Msg { return tea.Quit() }
+		}
+		return m, m.updateChild(m.widgetFocus, msg)
+
+	case RequestFocusNextMsg:
+		return m.updateFocus(m.widgetFocus + 1)
+	case RequestFocusPrevMsg:
+		return m.updateFocus(m.widgetFocus - 1)
+	case RequestFocusMainMsg:
+		return m.updateFocus(len(m.widgets))
+	case removeWidgetMsg:
+		for i, c := range m.widgets {
+			if c.id == msg.id {
+				m.RemoveChild(i)
+				break
+			}
+		}
+		return m, nil
+
+	case tea.WindowSizeMsg:
+		m.Width = msg.Width
+		m.Height = msg.Height
+		m.layout.Size(msg.Width, msg.Height)
+		return m, m.recalculateSizes()
+	case CommandEnteredMsg:
+		// Run a command
+		// TODO: make each `shell` a widget as well somehow?!
+		command := msg.Text
+		if len(command) == 0 {
+			break // We still let widgets deal with it!
+		}
+
+		size, _ := pty.GetsizeFull(os.Stdin)
+		cmd, err := m.shells[m.shellFocus].Command(command, size)
+		if err != nil {
+			log.Fatal("Can't create new Command!", err)
+		}
+
+		cmd.SetOnStdout(func() { m.program.Send(shell.StdoutMsg{Cmd: cmd}) })
+		cmd.SetOnStderr(func() { m.program.Send(shell.StderrMsg{Cmd: cmd}) })
+
+		log.Print("Running command")
+		return m, tea.Batch(
+			func() tea.Msg { return shell.NewCommandMsg{Cmd: cmd} },
+			func() tea.Msg { cmd.Run(); return shell.CommandDoneMsg{Cmd: cmd} },
+		)
+
+	// TODO: Should be cast to CommandDone?
+	case tea.EnvMsg:
+		log.Print("Got env")
+	}
+
+	var cmds []tea.Cmd
+	for i, child := range m.widgets {
+		var cmd tea.Cmd
+		cmd = m.updateChild(i, msg)
+		cmds = append(cmds, wrapChildCmd(cmd, child.id))
+	}
+	return m, tea.Batch(cmds...)
+}

@@ -337,6 +337,7 @@ func distribute(total, n int) []int {
 
 // TileSizes calculates the tile dimensions for n children based on the
 // current layout configuration. Returns one TileSize per child.
+// TODO: Should also return x/y placement coordinates and borders
 func (l *Layout) TileSizes(n int) []TileSize {
 	if n == 0 {
 		return nil
