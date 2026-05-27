@@ -2,6 +2,7 @@ package tiling
 
 import (
 	"math"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 )
@@ -107,155 +108,157 @@ func (l *Layout) Children(c ...string) *Layout {
 	return l
 }
 
-// Render computes the tiled layout and returns a single lipgloss string.
-func (l *Layout) Render() string {
+// Layer computes the tiled layout and returns a Layer with separate
+// widget and border sub-layers.
+func (l *Layout) Layer() *lipgloss.Layer {
 	if len(l.children) == 0 {
-		return ""
+		return lipgloss.NewLayer("")
 	}
 
 	if len(l.children) == 1 {
-		return l.placeChild(l.children[0], l.width, l.height)
+		return lipgloss.NewLayer(l.placeChild(l.children[0], l.width, l.height))
 	}
 
 	masterN := min(l.masterCount, len(l.children))
 	stackN := len(l.children) - masterN
-
 	hasBorder := stackN > 0
 
-	var masterArea, stackArea string
+	var widgets, borders []*lipgloss.Layer
 
 	if l.splitMode == SplitVertical {
-		masterArea, stackArea = l.renderVertical(masterN, stackN, hasBorder)
+		widgets, borders = l.buildVerticalLayers(masterN, stackN, hasBorder)
 	} else {
-		masterArea, stackArea = l.renderHorizontal(masterN, stackN, hasBorder)
+		widgets, borders = l.buildHorizontalLayers(masterN, stackN, hasBorder)
 	}
 
-	if stackN == 0 {
-		return masterArea
-	}
+	widgetLayer := lipgloss.NewLayer("", widgets...)
+	borderLayer := lipgloss.NewLayer("", borders...)
 
-	if l.splitMode == SplitVertical {
-		borderStr := l.borderStyle.Render(string(l.border.Left))
-		borderW := lipgloss.Width(borderStr)
-		gap := lipgloss.NewStyle().Width(borderW).Height(l.height).Render(borderStr)
-		return lipgloss.JoinHorizontal(lipgloss.Top, masterArea, gap, stackArea)
-	}
-
-	borderLine := l.borderStyle.Render(l.horizontalBorderLine(l.width))
-	gap := lipgloss.NewStyle().Width(l.width).Height(1).Render(borderLine)
-	return lipgloss.JoinVertical(lipgloss.Left, masterArea, gap, stackArea)
+	return lipgloss.NewLayer("", widgetLayer, borderLayer)
 }
 
-func (l *Layout) renderVertical(masterN, stackN int, hasBorder bool) (string, string) {
+func (l *Layout) buildVerticalLayers(masterN, stackN int, hasBorder bool) ([]*lipgloss.Layer, []*lipgloss.Layer) {
 	borderW := 0
 	if hasBorder {
 		borderW = lipgloss.Width(l.borderStyle.Render(string(l.border.Left)))
 	}
 
 	availW := l.width - borderW
-	masterW := int(float64(availW) * l.masterRatio)
-	stackW := availW - masterW
+	masterW := max(int(float64(availW)*l.masterRatio), 0)
+	stackW := max(availW-masterW, 0)
 
-	if masterW < 0 {
-		masterW = 0
-	}
-	if stackW < 0 {
-		stackW = 0
+	var widgets, borders []*lipgloss.Layer
+
+	// Master column
+	masterHeights := columnHeights(l.height, masterN)
+	y := 0
+	for i := range masterN {
+		content := l.placeChild(l.children[i], masterW, masterHeights[i])
+		widgets = append(widgets, lipgloss.NewLayer(content).X(0).Y(y))
+		y += masterHeights[i]
+		if i < masterN-1 {
+			line := l.borderStyle.Render(l.horizontalBorderLine(masterW))
+			borders = append(borders, lipgloss.NewLayer(line).X(0).Y(y).Z(1))
+			y++
+		}
 	}
 
-	masterArea := l.tileColumn(l.children[:masterN], masterW, l.height)
-	stackArea := ""
-	if stackN > 0 {
-		stackArea = l.tileColumn(l.children[masterN:], stackW, l.height)
+	// Stack column
+	stackX := masterW + borderW
+	stackHeights := columnHeights(l.height, stackN)
+	y = 0
+	for i := range stackN {
+		content := l.placeChild(l.children[masterN+i], stackW, stackHeights[i])
+		widgets = append(widgets, lipgloss.NewLayer(content).X(stackX).Y(y))
+		y += stackHeights[i]
+		if i < stackN-1 {
+			line := l.borderStyle.Render(l.horizontalBorderLine(stackW))
+			borders = append(borders, lipgloss.NewLayer(line).X(stackX).Y(y).Z(1))
+			y++
+		}
 	}
 
-	return masterArea, stackArea
+	// Vertical border between master and stack
+	if hasBorder {
+		col := l.borderStyle.Render(l.verticalBorderLine(l.height))
+		borders = append(borders, lipgloss.NewLayer(col).X(masterW).Y(0).Z(1))
+	}
+
+	return widgets, borders
 }
 
-func (l *Layout) renderHorizontal(masterN, stackN int, hasBorder bool) (string, string) {
+func (l *Layout) buildHorizontalLayers(masterN, stackN int, hasBorder bool) ([]*lipgloss.Layer, []*lipgloss.Layer) {
 	borderH := 0
 	if hasBorder {
 		borderH = 1
 	}
 
 	availH := l.height - borderH
-	masterH := int(float64(availH) * l.masterRatio)
-	stackH := availH - masterH
+	masterH := max(int(float64(availH)*l.masterRatio), 0)
+	stackH := max(availH-masterH, 0)
 
-	if masterH < 0 {
-		masterH = 0
-	}
-	if stackH < 0 {
-		stackH = 0
-	}
+	borderW := lipgloss.Width(l.borderStyle.Render(string(l.border.Left)))
 
-	masterArea := l.tileRow(l.children[:masterN], l.width, masterH)
-	stackArea := ""
-	if stackN > 0 {
-		stackArea = l.tileRow(l.children[masterN:], l.width, stackH)
-	}
+	var widgets, borders []*lipgloss.Layer
 
-	return masterArea, stackArea
-}
-
-// tileColumn tiles children vertically within a column of given width and height.
-func (l *Layout) tileColumn(children []string, width, height int) string {
-	if len(children) == 0 {
-		return ""
-	}
-	if len(children) == 1 {
-		return l.placeChild(children[0], width, height)
-	}
-
-	borderH := l.borderSize()
-
-	availH := max(height-borderH*(len(children)-1), 0)
-
-	sizes := distribute(availH, len(children))
-
-	var parts []string
-	for i, child := range children {
-		h := sizes[i]
-		part := l.placeChild(child, width, h)
-		parts = append(parts, part)
-
-		if i < len(children)-1 {
-			borderLine := l.borderStyle.Render(l.horizontalBorderLine(width))
-			parts = append(parts, borderLine)
+	// Master row
+	masterWidths := rowWidths(l.width, masterN, borderW)
+	x := 0
+	for i := range masterN {
+		content := l.placeChild(l.children[i], masterWidths[i], masterH)
+		widgets = append(widgets, lipgloss.NewLayer(content).X(x).Y(0))
+		x += masterWidths[i]
+		if i < masterN-1 {
+			col := l.borderStyle.Render(l.verticalBorderLine(masterH))
+			borders = append(borders, lipgloss.NewLayer(col).X(x).Y(0).Z(1))
+			x += borderW
 		}
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
-}
-
-// tileRow tiles children horizontally within a row of given width and height.
-func (l *Layout) tileRow(children []string, width, height int) string {
-	if len(children) == 0 {
-		return ""
-	}
-	if len(children) == 1 {
-		return l.placeChild(children[0], width, height)
-	}
-
-	borderW := l.borderSize()
-
-	availW := max(width-borderW*(len(children)-1), 0)
-
-	sizes := distribute(availW, len(children))
-
-	var parts []string
-	for i, child := range children {
-		w := sizes[i]
-		part := l.placeChild(child, w, height)
-		parts = append(parts, part)
-
-		if i < len(children)-1 {
-			borderCol := l.borderStyle.Render(l.verticalBorderLine(height))
-			parts = append(parts, borderCol)
+	// Stack row
+	stackY := masterH + borderH
+	stackWidths := rowWidths(l.width, stackN, borderW)
+	x = 0
+	for i := range stackN {
+		content := l.placeChild(l.children[masterN+i], stackWidths[i], stackH)
+		widgets = append(widgets, lipgloss.NewLayer(content).X(x).Y(stackY))
+		x += stackWidths[i]
+		if i < stackN-1 {
+			col := l.borderStyle.Render(l.verticalBorderLine(stackH))
+			borders = append(borders, lipgloss.NewLayer(col).X(x).Y(stackY).Z(1))
+			x += borderW
 		}
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+	// Horizontal border between master and stack
+	if hasBorder {
+		line := l.borderStyle.Render(l.horizontalBorderLine(l.width))
+		borders = append(borders, lipgloss.NewLayer(line).X(0).Y(masterH).Z(1))
+	}
+
+	return widgets, borders
+}
+
+func columnHeights(totalH, n int) []int {
+	if n <= 0 {
+		return nil
+	}
+	if n == 1 {
+		return []int{totalH}
+	}
+	availH := max(totalH-(n-1), 0)
+	return distribute(availH, n)
+}
+
+func rowWidths(totalW, n, borderW int) []int {
+	if n <= 0 {
+		return nil
+	}
+	if n == 1 {
+		return []int{totalW}
+	}
+	availW := max(totalW-borderW*(n-1), 0)
+	return distribute(availW, n)
 }
 
 // placeChild places a child string within a tile of the given dimensions,
@@ -272,27 +275,12 @@ func (l *Layout) borderSize() int {
 }
 
 func (l *Layout) horizontalBorderLine(width int) string {
-	left := l.border.MiddleLeft
-	right := l.border.MiddleRight
-	if left == "" {
-		left = l.border.Left
-	}
-	if right == "" {
-		right = l.border.Right
+	b := l.border.Bottom
+	if b == "" {
+		b = "─"
 	}
 
-	mid := l.border.Middle
-	if mid == "" {
-		mid = "─"
-	}
-
-	target := max(width-lipgloss.Width(right), 0)
-
-	line := left
-	for lipgloss.Width(line) < target {
-		line += mid
-	}
-	line += right
+	line := strings.Repeat(b, width/lipgloss.Width(b))
 
 	// Truncate to exact display width using lipgloss.
 	return lipgloss.NewStyle().Width(width).Render(line)

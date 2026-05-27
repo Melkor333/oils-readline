@@ -140,10 +140,6 @@ func TestChildSelfRemove(t *testing.T) {
 		t.Fatalf("expected 2 children after removal, got %d", len(m.widgets))
 	}
 
-	//assert.NotEqual(t, m.View().Content, updated.View().Content)
-	fmt.Print(updated.View().Content)
-	//fmt.Print(updated.View().Content)
-
 	assert.Equal(t, updated.View().Content, updated2.View().Content)
 }
 
@@ -179,9 +175,6 @@ func TestAddRemoveChild(t *testing.T) {
 	m = updated.(*model)
 
 	m.AddChild(newBlock("B", "6"))
-
-	updated, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(*model)
 
 	if len(m.widgets) != 2 {
 		t.Fatalf("expected 2 children, got %d", len(m.widgets))

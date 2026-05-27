@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/Melkor333/oils-readline/tiling"
 	"github.com/creack/pty"
@@ -81,7 +82,7 @@ func (m *model) AddChild(child tea.Model) tea.Cmd {
 	id := m.nextWidgetID
 	m.nextWidgetID++
 	m.widgets = append(m.widgets, Widget{child, id})
-	cmd := m.updateChild(len(m.widgets), tea.BlurMsg{})
+	cmd := m.updateChild(len(m.widgets)-1, tea.BlurMsg{})
 	return tea.Batch(m.recalculateSizes(), tea.Batch(child.Init(), cmd))
 }
 
@@ -195,9 +196,9 @@ func (m *model) View() tea.View {
 	}
 
 	// TODO: use tiling layout instead
-	v := tea.NewView(m.layout.
+	v := tea.NewView(lipgloss.NewCompositor(m.layout.
 		Children(views...).
-		Render())
+		Layer()).Render())
 	v.AltScreen = true
 	return v
 }

@@ -22,19 +22,25 @@ func TestDistribute(t *testing.T) {
 	}
 }
 
+func renderLayer(l *lipgloss.Layer) string {
+	return lipgloss.NewCompositor(l).Render()
+}
+
 func TestSingleChild(t *testing.T) {
 	hor := New().Size(80, 24).Split(SplitHorizontal).Children("SINGLE")
 	vert := New().Size(80, 24).Split(SplitVertical).Children("SINGLE")
-	golden.RequireEqual(t, []byte(hor.Render()))
+	horStr := renderLayer(hor.Layer())
+	vertStr := renderLayer(vert.Layer())
+	golden.RequireEqual(t, []byte(horStr))
 
 	// Horizontal and Vertical should be equal with a single child
-	assert.Equal(t, []byte(hor.Render()), []byte(vert.Render()))
-	golden.RequireEqual(t, []byte(hor.Render()))
+	assert.Equal(t, []byte(horStr), []byte(vertStr))
+	golden.RequireEqual(t, []byte(horStr))
 }
 
 func TestLayoutEmpty(t *testing.T) {
 	l := New().Size(80, 10)
-	result := l.Render()
+	result := renderLayer(l.Layer())
 	if result != "" {
 		t.Errorf("expected empty result, got %q", result)
 	}
@@ -112,11 +118,11 @@ func TestGoldenRender(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name+"_horizontal", func(t *testing.T) {
-			result := tt.layout.Split(SplitHorizontal).Render()
+			result := renderLayer(tt.layout.Split(SplitHorizontal).Layer())
 			golden.RequireEqual(t, []byte(result))
 		})
 		t.Run(tt.name+"_vertical", func(t *testing.T) {
-			result := tt.layout.Split(SplitVertical).Render()
+			result := renderLayer(tt.layout.Split(SplitVertical).Layer())
 			golden.RequireEqual(t, []byte(result))
 		})
 	}
