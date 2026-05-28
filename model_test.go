@@ -13,6 +13,7 @@ import (
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/Melkor333/oils-readline/tiling"
 	"github.com/chalk-ai/bubbline/editline"
+	"github.com/charmbracelet/x/exp/teatest/v2"
 	"github.com/creack/pty"
 	"github.com/stretchr/testify/assert"
 )
@@ -270,4 +271,23 @@ func insertStringAt(s []string, i int, v string) []string {
 	copy(s[i+1:], s[i:])
 	s[i] = v
 	return s
+}
+
+func TestTeaAddAndRemoveBlock(t *testing.T) {
+	m := NewModel(S, nil)
+	m.AddChild(newBlock("A", "5"))
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+
+	tm.Send(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	tm.Send(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl})
+	tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+
+	tm.Quit()
+	final := tm.FinalModel(t)
+	model := final.(*model)
+
+	if len(model.widgets) != 1 {
+		t.Fatalf("expected 1 widgets after add+remove, got %d", len(model.widgets))
+	}
 }

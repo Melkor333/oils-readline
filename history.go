@@ -30,6 +30,7 @@ var (
 	darkGreenGut   = lipgloss.NewStyle().Foreground(lipgloss.Color("22")) // dark green
 )
 
+// TODO: history should only track one shell?
 func newHistory() *history {
 	return &history{
 		focusedViewport: 0,

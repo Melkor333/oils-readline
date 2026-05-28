@@ -17,8 +17,10 @@ var (
 )
 
 type basicPrompt struct {
-	input *textinput.Model
-	shell shell.Shell
+	input    *textinput.Model
+	shell    shell.Shell
+	focussed bool
+	waiting  bool
 }
 
 type CommandEnteredMsg struct{ Text string }
@@ -75,13 +77,22 @@ func (bp *basicPrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case shell.CommandDoneMsg:
 		bp.input.Prompt = promptStyle.Render(bp.shell.GetPrompt())
-		return bp, bp.input.Focus()
+		bp.waiting = false
+		if bp.focussed {
+			return bp, bp.input.Focus()
+		}
+		return bp, nil
 
 	case tea.BlurMsg:
+		bp.focussed = false
 		bp.input.Blur()
 
 	case tea.FocusMsg:
-		return bp, bp.input.Focus()
+		bp.focussed = true
+		if !bp.waiting {
+			return bp, bp.input.Focus()
+		}
+		return bp, nil
 	}
 
 	var cmd tea.Cmd

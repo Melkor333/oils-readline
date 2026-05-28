@@ -19,11 +19,10 @@ import (
 type RequestFocusPrevMsg struct{}
 type RequestFocusNextMsg struct{}
 type RequestFocusMainMsg struct{} // Go to main
-//type BlurMsg struct{}
-//type FocusMsg struct{}
+
+type RemoveSelfMsg struct{}
 
 // removeChildMsg is an internal message to remove a child by its unique ID.
-type RemoveSelfMsg struct{}
 type removeShellMsg struct {
 	id uint64
 }
@@ -36,6 +35,7 @@ type Widget struct {
 	tea.Model
 	id uint64
 }
+
 type trackedShell struct {
 	shell.Shell
 	id uint64
@@ -56,6 +56,9 @@ type model struct {
 
 	//highlighter Highlighter
 	program *tea.Program
+
+	selecting bool
+	selector  *SelectorWidget
 }
 
 func NewModel(shells []shell.Shell, widgets []tea.Model) *model {
@@ -124,6 +127,9 @@ func (m *model) RemoveChild(index int) tea.Cmd {
 		return nil
 	}
 	m.widgets = append(m.widgets[:index], m.widgets[index+1:]...)
+	if m.widgetFocus >= len(m.widgets) {
+		m.widgetFocus = len(m.widgets) - 1
+	}
 	return m.recalculateSizes()
 }
 
@@ -155,6 +161,9 @@ func (m *model) updateFocus(i int) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) updateChild(i int, msg tea.Msg) (cmd tea.Cmd) {
+	if i < 0 || i >= len(m.widgets) { // TODO: assert?
+		return
+	}
 	newM, cmd := m.widgets[i].Update(msg)
 	m.widgets[i] = Widget{newM, m.widgets[i].id}
 	return
@@ -195,10 +204,18 @@ func (m *model) View() tea.View {
 		views = append(views, child.View().Content)
 	}
 
-	// TODO: use tiling layout instead
-	v := tea.NewView(lipgloss.NewCompositor(m.layout.
-		Children(views...).
-		Layer()).Render())
+	base := m.layout.Children(views...).Layer()
+
+	if m.selecting && m.selector != nil {
+		selectorContent := m.selector.View().Content
+		selectorLayer := lipgloss.NewLayer(selectorContent).Z(1)
+		result := lipgloss.NewCompositor(base, selectorLayer)
+		v := tea.NewView(result.Render())
+		v.AltScreen = true
+		return v
+	}
+
+	v := tea.NewView(lipgloss.NewCompositor(base).Render())
 	v.AltScreen = true
 	return v
 }
@@ -206,15 +223,42 @@ func (m *model) View() tea.View {
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
+		if m.selecting {
+			newSel, cmd := m.selector.Update(msg)
+			if c, ok := newSel.(*SelectorWidget); ok {
+				m.selector = c
+			}
+			return m, cmd
+		}
 		switch msg.String() {
-		case "ctrl+space":
+		case "ctrl+l":
 			return m.updateFocus(m.widgetFocus + 1)
-		case "esc":
-			return m.updateFocus(len(m.widgets) - 1)
+		case "ctrl+h":
+			return m.updateFocus(m.widgetFocus - 1)
+		case "ctrl+space":
+			m.selecting = true
+			m.selector = newWidgetSelector(map[string]func() tea.Cmd{
+				"SimplePrompt": func() tea.Cmd { return m.AddChild(newBasicPrompt(m.shells[m.shellFocus])) },
+				"SimpleLog":    func() tea.Cmd { return m.AddChild(newHistory()) },
+			})
+			m.selector.width = m.Width
+			m.selector.height = m.Height
+			return m, m.selector.Init()
 		case "ctrl+c":
+			if len(m.widgets) > 0 {
+				return m, m.RemoveChild(m.widgetFocus)
+			}
 			return m, func() tea.Msg { return tea.Quit() }
 		}
-		return m, m.updateChild(m.widgetFocus, msg)
+		if len(m.widgets) > 0 {
+			return m, m.updateChild(m.widgetFocus, msg)
+		}
+		return m, nil
+
+	case CloseSelectorMsg:
+		m.selecting = false
+		m.selector = nil
+		return m, nil
 
 	case RequestFocusNextMsg:
 		return m.updateFocus(m.widgetFocus + 1)
@@ -235,6 +279,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width = msg.Width
 		m.Height = msg.Height
 		m.layout.Size(msg.Width, msg.Height)
+		if m.selecting && m.selector != nil {
+			m.selector.width = msg.Width
+			m.selector.height = msg.Height
+		}
 		return m, m.recalculateSizes()
 	case CommandEnteredMsg:
 		// Run a command
