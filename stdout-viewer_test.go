@@ -12,6 +12,7 @@ import (
 type fakeCommand struct {
 	commandLine string
 	stdout      string
+	stderr      string
 }
 
 func (f *fakeCommand) Run()                       {}
@@ -19,7 +20,7 @@ func (f *fakeCommand) CommandLine() string        { return f.commandLine }
 func (f *fakeCommand) Wait()                      {}
 func (f *fakeCommand) Stdin() io.Writer           { return io.Discard }
 func (f *fakeCommand) Stdout() string             { return f.stdout }
-func (f *fakeCommand) Stderr() string             { return "" }
+func (f *fakeCommand) Stderr() string             { return f.stderr }
 func (f *fakeCommand) SetStdout(stdout io.Reader) {}
 func (f *fakeCommand) SetStdin(stdin io.Writer)   {}
 func (f *fakeCommand) SetOnStdout(fn func())      {}
@@ -209,4 +210,61 @@ func TestStdoutViewerMultipleStdoutUpdates(t *testing.T) {
 	cmd.(*fakeCommand).stdout = "chunk1\nchunk2\n"
 	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd})
 	assert.Contains(t, h.view.View(), "chunk2")
+}
+
+func TestStdoutViewerToggleStderr(t *testing.T) {
+	h := newStdoutViewer()
+
+	cmd := &fakeCommand{commandLine: "my-cmd", stdout: "out\n", stderr: "err\n"}
+	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
+	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd})
+
+	assert.False(t, h.showStderr)
+	assert.Contains(t, h.view.View(), "out")
+	assert.NotContains(t, h.view.View(), "err")
+
+	h = updateStdoutViewer(t, h, tea.FocusMsg{})
+	h = updateStdoutViewer(t, h, tea.KeyPressMsg{Code: 'e'})
+
+	assert.True(t, h.showStderr)
+	assert.Contains(t, h.view.View(), "err")
+	assert.NotContains(t, h.view.View(), "out")
+
+	h = updateStdoutViewer(t, h, tea.KeyPressMsg{Code: 'e'})
+
+	assert.False(t, h.showStderr)
+	assert.Contains(t, h.view.View(), "out")
+	assert.NotContains(t, h.view.View(), "err")
+}
+
+func TestStdoutViewerStderrRedCommandLine(t *testing.T) {
+	h := newStdoutViewer()
+
+	cmd := &fakeCommand{commandLine: "fail-cmd", stdout: "ok\n", stderr: "oops\n"}
+	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
+	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd})
+
+	h = updateStdoutViewer(t, h, tea.FocusMsg{})
+	h = updateStdoutViewer(t, h, tea.KeyPressMsg{Code: 'e'})
+
+	fullView := h.View().Content
+	assert.Contains(t, fullView, "fail-cmd")
+	assert.Contains(t, fullView, "oops")
+}
+
+func TestStdoutViewerStderrMsgUpdatesContent(t *testing.T) {
+	h := newStdoutViewer()
+
+	cmd := &fakeCommand{commandLine: "cmd", stdout: "", stderr: ""}
+	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
+	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+
+	h = updateStdoutViewer(t, h, tea.FocusMsg{})
+	h = updateStdoutViewer(t, h, tea.KeyPressMsg{Code: 'e'})
+
+	cmd.stderr = "error!\n"
+	h = updateStdoutViewer(t, h, shell.StderrMsg{Cmd: cmd})
+	assert.Contains(t, h.view.View(), "error!")
 }

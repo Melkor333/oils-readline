@@ -19,6 +19,7 @@ type StdoutViewer struct {
 	isFocussed   bool
 	targetIndex  int
 	currentIndex int
+	showStderr   bool
 	Width        int
 	Height       int
 }
@@ -26,10 +27,15 @@ type StdoutViewer struct {
 var (
 	brightGreenGut = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // bright green
 	darkGreenGut   = lipgloss.NewStyle().Foreground(lipgloss.Color("22")) // dark green
+	redCmdLine     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))  // red
 )
 
 func newStdoutViewer() *StdoutViewer {
-	return &StdoutViewer{}
+	return &StdoutViewer{targetIndex: -1, currentIndex: -1}
+}
+
+func newStderrViewer() *StdoutViewer {
+	return &StdoutViewer{targetIndex: -1, currentIndex: -1, showStderr: true}
 }
 
 func (h *StdoutViewer) Init() tea.Cmd {
@@ -66,6 +72,10 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					h.targetIndex = -1
 				}
+				return h, nil
+			case "e":
+				h.showStderr = !h.showStderr
+				h.updateContent()
 				return h, nil
 			default:
 				var cmd tea.Cmd
@@ -110,6 +120,13 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case shell.StderrMsg:
+		log.Print("Stderr output received")
+		if h.currentIndex == -1 && h.command == msg.Cmd && h.showStderr {
+			h.updateContent()
+		}
+		return h, nil
+
 	case tea.BlurMsg:
 		h.view.LeftGutterFunc = unselected
 		h.isFocussed = false
@@ -128,22 +145,31 @@ func (h *StdoutViewer) View() tea.View {
 		return tea.NewView("")
 	}
 
+	cmdLine := h.command.CommandLine()
+	if h.showStderr {
+		cmdLine = redCmdLine.Render(cmdLine)
+	}
+
 	sticky := darkGreenGut
 	if h.targetIndex != h.currentIndex {
 		sticky = brightGreenGut
 	}
 	if h.currentIndex >= 0 {
 		i := sticky.Render(fmt.Sprintf("[%d]", h.currentIndex))
-		return tea.NewView(fmt.Sprintf("%v %s\n%s", i, h.command.CommandLine(), h.view.View()))
+		return tea.NewView(fmt.Sprintf("%v %s\n%s", i, cmdLine, h.view.View()))
 	}
-	return tea.NewView(h.command.CommandLine() + "\n" + h.view.View())
+	return tea.NewView(cmdLine + "\n" + h.view.View())
 }
 
 func (h *StdoutViewer) updateContent() {
 	if h.command == nil {
 		return
 	}
-	output := strings.Trim(h.command.Stdout(), "\r\n")
+	output := h.command.Stdout()
+	if h.showStderr {
+		output = h.command.Stderr()
+	}
+	output = strings.Trim(output, "\r\n")
 	h.view.SetContent(output)
 }
 

@@ -98,7 +98,7 @@ func main() {
 
 	model := NewModel(
 		[]shell.Shell{s},
-		[]tea.Model{newStdoutViewer(), newBasicPrompt(s)},
+		[]tea.Model{newBasicPrompt(s), newStdoutViewer(), newStderrViewer()},
 	)
 
 	model.layout.Split(tiling.SplitHorizontal)

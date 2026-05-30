@@ -15,6 +15,13 @@ import (
 // RemoveSelfMsg is a message that a child model can return from its Update
 // function (via a command) to request its own removal from the parent tiling
 // Model.
+func widgets(m *model) map[string]func() tea.Cmd {
+	return map[string]func() tea.Cmd{
+		"SimplePrompt": func() tea.Cmd { return m.AddChild(newBasicPrompt(m.shells[m.shellFocus])) },
+		"StdoutLog":    func() tea.Cmd { return m.AddChild(newStdoutViewer()) },
+		"ErrorLog":     func() tea.Cmd { return m.AddChild(newStderrViewer()) },
+	}
+}
 
 type RequestFocusPrevMsg struct{}
 type RequestFocusNextMsg struct{}
@@ -239,10 +246,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateFocus(m.widgetFocus - 1)
 		case "ctrl+space":
 			m.selecting = true
-			m.selector = newWidgetSelector(map[string]func() tea.Cmd{
-				"SimplePrompt": func() tea.Cmd { return m.AddChild(newBasicPrompt(m.shells[m.shellFocus])) },
-				"SimpleLog":    func() tea.Cmd { return m.AddChild(newStdoutViewer()) },
-			})
+			m.selector = newWidgetSelector(widgets(m))
 			m.selector.width = m.Width
 			m.selector.height = m.Height
 			return m, m.selector.Init()
