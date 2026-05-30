@@ -26,6 +26,8 @@ cd "$WORKDIR/oils-for-unix-$VERSION" # Change into the extracted directory
 # Step 5: Build and install
 ./build/static-oils.sh
 cp _bin/cxx-opt-sh/oils-for-unix-static.stripped "$OLDCWD/assets/"
+# Sometimes this doesn't happen
+chmod +x "$OLDCWD/assets/oils-for-unix-static.stripped"
 cd "$OLDCWD"
 # Step 6: Cleanup
 # Remove the temporary directory
