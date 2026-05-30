@@ -14,6 +14,13 @@ type CommandDoneMsg struct{ Cmd Command }
 type StdoutMsg struct{ Cmd Command }
 type StderrMsg struct{ Cmd Command }
 
+type RequestHistoryEntryMsg struct{ Index int }
+type HistoryEntryMsg struct {
+	Cmd   Command
+	Index int
+	Total int
+}
+
 type Shell interface {
 	//StdIO(*os.File, *os.File, *os.File) error
 	Command(cmd string, size *pty.Winsize) (Command, error)

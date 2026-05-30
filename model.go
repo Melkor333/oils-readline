@@ -50,6 +50,8 @@ type model struct {
 	widgetFocus  int
 	nextWidgetID uint64
 
+	history []shell.Command
+
 	layout *tiling.Layout
 	Height int
 	Width  int
@@ -301,6 +303,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd.SetOnStdout(func() { m.program.Send(shell.StdoutMsg{Cmd: cmd}) })
 		cmd.SetOnStderr(func() { m.program.Send(shell.StderrMsg{Cmd: cmd}) })
 
+		m.history = append(m.history, cmd)
+
 		log.Print("Running command")
 		return m, tea.Batch(
 			func() tea.Msg { return shell.NewCommandMsg{Cmd: cmd} },
@@ -310,6 +314,27 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// TODO: Should be cast to CommandDone?
 	case tea.EnvMsg:
 		log.Print("Got env")
+
+	case shell.RequestHistoryEntryMsg:
+		if msg.Index < 0 { // Negative means the last entry
+			return m, func() tea.Msg {
+				return shell.HistoryEntryMsg{
+					Cmd:   m.history[len(m.history)-1],
+					Index: len(m.history) - 1,
+					Total: len(m.history),
+				}
+			}
+		}
+		if msg.Index < len(m.history) {
+			return m, func() tea.Msg {
+				return shell.HistoryEntryMsg{
+					Cmd:   m.history[msg.Index],
+					Index: msg.Index,
+					Total: len(m.history),
+				}
+			}
+		}
+		return m, nil
 	}
 
 	var cmds []tea.Cmd
