@@ -239,7 +239,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selecting = true
 			m.selector = newWidgetSelector(map[string]func() tea.Cmd{
 				"SimplePrompt": func() tea.Cmd { return m.AddChild(newBasicPrompt(m.shells[m.shellFocus])) },
-				"SimpleLog":    func() tea.Cmd { return m.AddChild(newHistory()) },
+				"SimpleLog":    func() tea.Cmd { return m.AddChild(newStdoutViewer()) },
 			})
 			m.selector.width = m.Width
 			m.selector.height = m.Height

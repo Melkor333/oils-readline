@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"strings"
 
@@ -13,11 +12,7 @@ import (
 	"github.com/Melkor333/oils-readline/shell"
 )
 
-var (
-	historyFile = flag.String("historyFile", "$HOME/.local/share/oils/readline-history.json", "Path to the history file")
-)
-
-type history struct {
+type StdoutViewer struct {
 	command    shell.Command
 	view       viewport.Model
 	isFocussed bool
@@ -30,15 +25,15 @@ var (
 	darkGreenGut   = lipgloss.NewStyle().Foreground(lipgloss.Color("22")) // dark green
 )
 
-func newHistory() *history {
-	return &history{}
+func newStdoutViewer() *StdoutViewer {
+	return &StdoutViewer{}
 }
 
-func (h *history) Init() tea.Cmd {
+func (h *StdoutViewer) Init() tea.Cmd {
 	return nil
 }
 
-func (h *history) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if h.isFocussed {
@@ -85,14 +80,14 @@ func (h *history) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return h, nil
 }
 
-func (h *history) View() tea.View {
+func (h *StdoutViewer) View() tea.View {
 	if h.command == nil {
 		return tea.NewView("")
 	}
 	return tea.NewView(h.command.CommandLine() + "\n" + h.view.View())
 }
 
-func (h *history) updateContent() {
+func (h *StdoutViewer) updateContent() {
 	if h.command == nil {
 		return
 	}
