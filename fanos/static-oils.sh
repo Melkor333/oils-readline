@@ -14,8 +14,8 @@ TARBALL_URL="https://oils.pub/download/oils-for-unix-$VERSION.tar.gz" # Update w
 TARBALL_PATH="$WORKDIR/oils-for-unix.tar.gz"
 wget -O "$TARBALL_PATH" "$TARBALL_URL" # Use curl or wget to fetch the tarball
 
-OLDCWD=$(pwd)
-mkdir -p "$OLDCWD/assets/"
+TARGET=$(pwd)
+mkdir -p "$TARGET/assets/"
 # Step 3: Extract the tarball
 tar -xzf "$TARBALL_PATH" -C "$WORKDIR" # Extract the files into the temporary directory
 cd "$WORKDIR/oils-for-unix-$VERSION" # Change into the extracted directory
@@ -25,10 +25,10 @@ cd "$WORKDIR/oils-for-unix-$VERSION" # Change into the extracted directory
 
 # Step 5: Build and install
 ./build/static-oils.sh
-cp _bin/cxx-opt-sh/oils-for-unix-static.stripped "$OLDCWD/assets/"
+cp _bin/cxx-opt-sh/oils-for-unix-static.stripped "$TARGET/assets/"
 # Sometimes this doesn't happen
-chmod +x "$OLDCWD/assets/oils-for-unix-static.stripped"
-cd "$OLDCWD"
+chmod +x "$TARGET/assets/oils-for-unix-static.stripped"
+cd "$TARGET"
 # Step 6: Cleanup
 # Remove the temporary directory
 rm -rf "$WORKDIR"
