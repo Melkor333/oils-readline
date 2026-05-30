@@ -6,3 +6,4 @@ lib/inject_tcsetpgrp.so
 oils-readline
 dist/*
 /fanos/assets/*
+/assets/*
