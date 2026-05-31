@@ -27,13 +27,14 @@ type RequestFocusPrevMsg struct{}
 type RequestFocusNextMsg struct{}
 type RequestFocusMainMsg struct{} // Go to main
 
-type RemoveSelfMsg struct{}
+type RemoveSelfMsg struct{ id uint64 }
+type removeWidgetMsg struct{ id uint64 }
+
+func (msg RemoveSelfMsg) TargetedMsg() uint64 { return msg.id }
+func (msg RemoveSelfMsg) Tag(t uint64)        { msg.id = t }
 
 // removeChildMsg is an internal message to remove a child by its unique ID.
 type removeShellMsg struct {
-	id uint64
-}
-type removeWidgetMsg struct {
 	id uint64
 }
 
@@ -150,8 +151,9 @@ func wrapChildCmd(cmd tea.Cmd, childID uint64) tea.Cmd {
 	}
 	return func() tea.Msg {
 		msg := cmd()
-		if _, ok := msg.(RemoveSelfMsg); ok {
-			return removeWidgetMsg{id: childID}
+		if t, ok := msg.(shell.TaggedMsg); ok {
+			log.Printf("Tagged message for %v!", childID)
+			msg = t.Tag(childID)
 		}
 		return msg
 	}
@@ -169,13 +171,13 @@ func (m *model) updateFocus(i int) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.updateChild(old, tea.BlurMsg{}), m.updateChild(m.widgetFocus, tea.FocusMsg{}))
 }
 
-func (m *model) updateChild(i int, msg tea.Msg) (cmd tea.Cmd) {
+func (m *model) updateChild(i int, msg tea.Msg) tea.Cmd {
 	if i < 0 || i >= len(m.widgets) { // TODO: assert?
-		return
+		return nil
 	}
 	newM, cmd := m.widgets[i].Update(msg)
 	m.widgets[i] = Widget{newM, m.widgets[i].id}
-	return
+	return wrapChildCmd(cmd, m.widgets[i].id)
 }
 
 func (m *model) Init() tea.Cmd {
@@ -230,6 +232,31 @@ func (m *model) View() tea.View {
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// First switch: transform messages inline by updating msg, so the new
+	// message reaches children in the same loop iteration (no extra MVU roundtrip).
+	log.Printf("message: %T, %v", msg, msg)
+	switch typedMsg := msg.(type) {
+	case shell.RequestHistoryEntryMsg:
+		if typedMsg.Index < 0 {
+			msg = shell.HistoryEntryMsg{
+				Cmd:   m.history[len(m.history)-1],
+				Index: len(m.history) - 1,
+				Total: len(m.history),
+				Id:    typedMsg.Id,
+			}
+		} else if typedMsg.Index < len(m.history) {
+			msg = shell.HistoryEntryMsg{
+				Cmd:   m.history[typedMsg.Index],
+				Index: typedMsg.Index,
+				Total: len(m.history),
+				Id:    typedMsg.Id,
+			}
+		} else {
+			return m, nil
+		}
+	}
+
+	// Second switch: handle all other cases, returning normally.
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if m.selecting {
@@ -256,6 +283,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, func() tea.Msg { return tea.Quit() }
 		}
+
+		// Keypresses only go to the currently focussed widget
 		if len(m.widgets) > 0 {
 			return m, m.updateChild(m.widgetFocus, msg)
 		}
@@ -318,24 +347,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// TODO: Should be cast to CommandDone?
 	case tea.EnvMsg:
 		log.Print("Got env")
+	}
 
-	case shell.RequestHistoryEntryMsg:
-		if msg.Index < 0 { // Negative means the last entry
-			return m, func() tea.Msg {
-				return shell.HistoryEntryMsg{
-					Cmd:   m.history[len(m.history)-1],
-					Index: len(m.history) - 1,
-					Total: len(m.history),
-				}
-			}
-		}
-		if msg.Index < len(m.history) {
-			return m, func() tea.Msg {
-				return shell.HistoryEntryMsg{
-					Cmd:   m.history[msg.Index],
-					Index: msg.Index,
-					Total: len(m.history),
-				}
+	if tmsg, ok := msg.(shell.TargetedMsg); ok {
+		id := tmsg.TargetWidget()
+		for i, c := range m.widgets {
+			if c.id == id {
+				return m, m.updateChild(i, msg)
 			}
 		}
 		return m, nil

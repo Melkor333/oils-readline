@@ -79,7 +79,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// TODO: Discard logs when debug is off
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	s, err := fanos.New()
 	if err != nil {

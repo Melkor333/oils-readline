@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/chalk-ai/bubbline/editline"
 	"github.com/creack/pty"
 )
@@ -14,12 +15,36 @@ type CommandDoneMsg struct{ Cmd Command }
 type StdoutMsg struct{ Cmd Command }
 type StderrMsg struct{ Cmd Command }
 
-type RequestHistoryEntryMsg struct{ Index int }
+type RequestHistoryEntryMsg struct {
+	Index int
+	Id    uint64
+}
+
+var _ TaggedMsg = RequestHistoryEntryMsg{}
+
+func (msg RequestHistoryEntryMsg) Tag(id uint64) tea.Msg {
+	msg.Id = id
+	return msg
+}
+
+type TaggedMsg interface {
+	Tag(uint64) tea.Msg
+}
+
+type TargetedMsg interface {
+	TargetWidget() uint64
+}
+
 type HistoryEntryMsg struct {
 	Cmd   Command
 	Index int
 	Total int
+	Id    uint64
 }
+
+var _ TargetedMsg = HistoryEntryMsg{}
+
+func (msg HistoryEntryMsg) TargetWidget() uint64 { return msg.Id }
 
 type Shell interface {
 	//StdIO(*os.File, *os.File, *os.File) error
