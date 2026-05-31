@@ -42,9 +42,9 @@ type HistoryEntryMsg struct {
 	Id    uint64
 }
 
-var _ TargetedMsg = HistoryEntryMsg{}
-
 func (msg HistoryEntryMsg) TargetWidget() uint64 { return msg.Id }
+
+var _ TargetedMsg = HistoryEntryMsg{}
 
 type Shell interface {
 	//StdIO(*os.File, *os.File, *os.File) error

@@ -42,30 +42,29 @@ func (h *StdoutViewer) Init() tea.Cmd {
 	return nil
 }
 
+func (h *StdoutViewer) requestHistoryEntry(index int) tea.Cmd {
+	return func() tea.Msg {
+		return shell.RequestHistoryEntryMsg{Index: index}
+	}
+}
+
 func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if h.isFocussed {
 			switch msg.String() {
 			case "h":
-				if h.currentIndex == -1 {
-					h.currentIndex = 0
-				} else if h.currentIndex > 0 {
-					h.currentIndex--
-				} else {
-					return h, nil
+				if h.targetIndex >= 0 {
+					h.targetIndex -= 1
+					return h, h.requestHistoryEntry(h.targetIndex)
 				}
-				return h, func() tea.Msg {
-					return shell.RequestHistoryEntryMsg{Index: h.currentIndex}
-				}
+				return h, h.requestHistoryEntry(h.currentIndex - 1)
 			case "l":
-				if h.currentIndex >= 0 {
-					h.currentIndex++
-					return h, func() tea.Msg {
-						return shell.RequestHistoryEntryMsg{Index: h.currentIndex}
-					}
+				if h.targetIndex >= 0 {
+					h.targetIndex += 1
+					return h, h.requestHistoryEntry(h.targetIndex)
 				}
-				return h, nil
+				return h, h.requestHistoryEntry(h.currentIndex + 1)
 			case "s":
 				if h.targetIndex == -1 {
 					h.targetIndex = h.currentIndex
@@ -85,7 +84,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case shell.NewCommandMsg:
-		if h.targetIndex == -1 {
+		if h.targetIndex < 0 {
 			h.command = msg.Cmd
 			h.currentIndex = -1
 			h.view = viewport.New(
@@ -99,11 +98,22 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case shell.HistoryEntryMsg:
-		if h.targetIndex == msg.Index || h.targetIndex == -1 {
+		log.Printf("New Command with index %v: %v", msg.Index, msg)
+		if h.targetIndex > msg.Total {
+			h.targetIndex = msg.Total
+			if msg.Total == msg.Index+1 {
+				h.currentIndex = msg.Index
+				h.command = msg.Cmd
+				h.updateContent()
+			}
+			return h, nil
+		}
+		if h.targetIndex == msg.Index || h.targetIndex < 0 {
 			h.currentIndex = msg.Index
 			h.command = msg.Cmd
 			h.updateContent()
 		}
+		log.Printf("Current: %v; Target %v", h.currentIndex, h.targetIndex)
 		return h, nil
 
 	case tea.WindowSizeMsg:
@@ -115,14 +125,14 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case shell.StdoutMsg:
 		log.Print("Stdout output received")
-		if h.currentIndex == -1 && h.command == msg.Cmd {
+		if h.currentIndex < 0 && h.command == msg.Cmd {
 			h.updateContent()
 		}
 		return h, nil
 
 	case shell.StderrMsg:
 		log.Print("Stderr output received")
-		if h.currentIndex == -1 && h.command == msg.Cmd && h.showStderr {
+		if h.currentIndex < 0 && h.command == msg.Cmd && h.showStderr {
 			h.updateContent()
 		}
 		return h, nil
@@ -151,7 +161,7 @@ func (h *StdoutViewer) View() tea.View {
 	}
 
 	sticky := darkGreenGut
-	if h.targetIndex != h.currentIndex {
+	if h.targetIndex != h.currentIndex || h.targetIndex < 0 {
 		sticky = brightGreenGut
 	}
 	if h.currentIndex >= 0 {
