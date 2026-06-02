@@ -1,6 +1,6 @@
 module github.com/Melkor333/oils-readline
 
-go 1.26.1
+go 1.25.0
 
 //replace mvdan.cc/sh/v3 => ../mvdan-sh
 
@@ -13,6 +13,7 @@ require (
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20260519012233-798e623c8447
 	github.com/creack/pty v1.1.24
 	github.com/danyspin97/tree-sitter-ysh v0.0.0-20251125165730-bb2e404f293b
+	github.com/stretchr/testify v1.11.1
 	github.com/tree-sitter/go-tree-sitter v0.25.0
 	go.gopad.dev/go-tree-sitter-highlight v0.0.0-20241203223050-3ffb64c3a650
 	golang.org/x/term v0.40.0
@@ -50,7 +51,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tree-sitter/tree-sitter-javascript v0.25.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sync v0.20.0 // indirect
