@@ -30,8 +30,8 @@ type RequestFocusMainMsg struct{} // Go to main
 type RemoveSelfMsg struct{ id uint64 }
 type removeWidgetMsg struct{ id uint64 }
 
-func (msg RemoveSelfMsg) TargetedMsg() uint64 { return msg.id }
-func (msg RemoveSelfMsg) Tag(t uint64)        { msg.id = t }
+func (msg RemoveSelfMsg) TargetedMsg() uint64  { return msg.id }
+func (msg RemoveSelfMsg) Tag(t uint64) tea.Msg { msg.id = t; return msg }
 
 // removeChildMsg is an internal message to remove a child by its unique ID.
 type removeShellMsg struct {
@@ -266,6 +266,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
+
 		switch msg.String() {
 		case "ctrl+l":
 			return m.updateFocus(m.widgetFocus + 1)

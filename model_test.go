@@ -148,7 +148,7 @@ func TestWrapChildCmd(t *testing.T) {
 	removeCmd := func() tea.Msg { return RemoveSelfMsg{} }
 	wrapped := wrapChildCmd(removeCmd, 42)
 	msg := wrapped()
-	rcm, ok := msg.(removeWidgetMsg)
+	rcm, ok := msg.(RemoveSelfMsg)
 	if !ok {
 		t.Fatalf("expected removeChildMsg, got %T", msg)
 	}
