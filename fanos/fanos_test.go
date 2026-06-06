@@ -42,22 +42,28 @@ var (
 			false,
 		},
 		{
+			"Read stdin",
+			TestArgs{`cat`, "hello world\n"},
+			"hello world\n", "",
+			false,
+		},
+		{
 			"weird characters",
 			TestArgs{string('\t'), ""},
 			"", "",
 			false,
 		},
+		// requires shell returning last code
+		//{
+		//	"Error",
+		//	TestArgs{"return 2", ""},
+		//	"", "",
+		//	true,
+		//},
 	}
 )
 
 func TestShell_Run(t *testing.T) {
-	// Currently fails
-	//{
-	//	"Error",
-	//	args{"return 2", ""},
-	//	"", "",
-	//	true,
-	//},
 	for _, tt := range command_tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s, err := New()

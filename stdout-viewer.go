@@ -14,32 +14,54 @@ import (
 )
 
 type StdoutViewer struct {
-	command      shell.Command
-	view         viewport.Model
-	isFocussed   bool
-	targetIndex  int
-	currentIndex int
-	showStderr   bool
-	Width        int
-	Height       int
+	command         shell.Command
+	view            viewport.Model
+	isFocussed      bool
+	targetIndex     int
+	currentIndex    int
+	showStderr      bool
+	interactiveMode bool
+	exitMenuSelect  menuSelection
+	Width           int
+	Height          int
 }
 
 var (
-	brightGreenGut = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // bright green
-	darkGreenGut   = lipgloss.NewStyle().Foreground(lipgloss.Color("22")) // dark green
-	redCmdLine     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))  // red
+	activeColor    = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // bright green
+	inactiveColor  = lipgloss.NewStyle().Foreground(lipgloss.Color("22")) // dark green
+	highlightColor = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))  // red
+)
+
+type menuSelection int
+
+const (
+	menuSelectHidden menuSelection = iota + 2
+	menuSelectSendctrlc
+	menuSelectExit
+	menuSelectCancel
 )
 
 func newStdoutViewer() *StdoutViewer {
-	return &StdoutViewer{targetIndex: -1, currentIndex: -1}
+	return &StdoutViewer{targetIndex: -1, currentIndex: -1, exitMenuSelect: menuSelectHidden}
 }
 
 func newStderrViewer() *StdoutViewer {
-	return &StdoutViewer{targetIndex: -1, currentIndex: -1, showStderr: true}
+	return &StdoutViewer{targetIndex: -1, currentIndex: -1, showStderr: true, exitMenuSelect: menuSelectHidden}
 }
 
 func (h *StdoutViewer) Init() tea.Cmd {
 	return nil
+}
+
+func (h *StdoutViewer) WriteStdin(b []byte) (int, error) {
+	if h.command == nil {
+		return 0, fmt.Errorf("no command")
+	}
+	return h.command.Stdin().Write(b)
+}
+
+func (h *StdoutViewer) IsInteractive() bool {
+	return h.interactiveMode
 }
 
 func (h *StdoutViewer) requestHistoryEntry(index int) tea.Cmd {
@@ -51,39 +73,95 @@ func (h *StdoutViewer) requestHistoryEntry(index int) tea.Cmd {
 func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		if h.isFocussed {
+		if h.interactiveMode {
 			switch msg.String() {
+			case "enter":
+				switch h.exitMenuSelect {
+				case menuSelectHidden:
+					return h, func() tea.Msg {
+						h.WriteStdin([]byte{'\n'})
+						return nil
+					}
+				case menuSelectSendctrlc:
+					h.exitMenuSelect = menuSelectHidden
+					return h, func() tea.Msg {
+						h.WriteStdin([]byte{'\x03'})
+						return nil
+					}
+				case menuSelectExit:
+					h.interactiveMode = false
+					h.exitMenuSelect = menuSelectHidden
+					return h, nil
+				case menuSelectCancel:
+					h.exitMenuSelect = menuSelectHidden
+					return h, nil
+				}
+				return h, nil
 			case "h":
-				if h.targetIndex >= 0 {
-					h.targetIndex -= 1
-					return h, h.requestHistoryEntry(h.targetIndex)
+				if h.exitMenuSelect != menuSelectHidden {
+					if h.exitMenuSelect == menuSelectSendctrlc {
+						return h, nil
+					}
+					h.exitMenuSelect--
+					return h, nil
 				}
-				return h, h.requestHistoryEntry(h.currentIndex - 1)
 			case "l":
-				if h.targetIndex >= 0 {
-					h.targetIndex += 1
-					return h, h.requestHistoryEntry(h.targetIndex)
+				if h.exitMenuSelect != menuSelectHidden {
+					if h.exitMenuSelect == menuSelectCancel {
+						return h, nil
+					}
+					h.exitMenuSelect += 1
+					return h, nil
 				}
-				return h, h.requestHistoryEntry(h.currentIndex + 1)
-			case "s":
-				if h.targetIndex == -1 {
-					h.targetIndex = h.currentIndex
-				} else {
-					h.targetIndex = -1
-				}
-				return h, nil
 			case "e":
-				h.showStderr = !h.showStderr
-				h.updateContent()
-				return h, nil
-			default:
-				var cmd tea.Cmd
-				h.view, cmd = h.view.Update(msg)
-				return h, cmd
+				if h.exitMenuSelect == menuSelectHidden {
+					h.exitMenuSelect = menuSelectSendctrlc
+					return h, nil
+				}
+			}
+			key := msg.Text
+			return h, func() tea.Msg {
+				h.WriteStdin([]byte(key))
+				return nil
 			}
 		}
-
+		switch msg.String() {
+		case "enter":
+			if h.command != nil {
+				h.interactiveMode = true
+				return h, nil
+			}
+		case "h":
+			if h.targetIndex >= 0 {
+				h.targetIndex -= 1
+				return h, h.requestHistoryEntry(h.targetIndex)
+			}
+			return h, h.requestHistoryEntry(h.currentIndex - 1)
+		case "l":
+			if h.targetIndex >= 0 {
+				h.targetIndex += 1
+				return h, h.requestHistoryEntry(h.targetIndex)
+			}
+			return h, h.requestHistoryEntry(h.currentIndex + 1)
+		case "s":
+			if h.targetIndex == -1 {
+				h.targetIndex = h.currentIndex
+			} else {
+				h.targetIndex = -1
+			}
+			return h, nil
+		case "e":
+			h.showStderr = !h.showStderr
+			h.updateContent()
+			return h, nil
+		default:
+			var cmd tea.Cmd
+			h.view, cmd = h.view.Update(msg)
+			return h, cmd
+		}
 	case shell.NewCommandMsg:
+		h.interactiveMode = false
+		h.exitMenuSelect = menuSelectHidden
 		if h.targetIndex < 0 {
 			h.command = msg.Cmd
 			h.currentIndex = -1
@@ -94,6 +172,14 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.view.FillHeight = false
 			h.view.LeftGutterFunc = selected
 			h.updateContent()
+		}
+		return h, nil
+
+	// can't interact with a done command
+	case shell.CommandDoneMsg:
+		if h.interactiveMode {
+			h.interactiveMode = false
+			h.exitMenuSelect = menuSelectHidden
 		}
 		return h, nil
 
@@ -151,18 +237,41 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (h *StdoutViewer) View() tea.View {
+
 	if h.command == nil {
 		return tea.NewView("")
 	}
 
-	cmdLine := h.command.CommandLine()
-	if h.showStderr {
-		cmdLine = redCmdLine.Render(cmdLine)
+	if h.interactiveMode {
+		log.Print("Interactive mode")
+		if h.exitMenuSelect != menuSelectHidden {
+			sendCtrlc := activeColor.Border(lipgloss.ASCIIBorder()).Render("Sendctrlc")
+			exit := activeColor.Border(lipgloss.ASCIIBorder()).Render("Exit interactive mode")
+			cancel := activeColor.Border(lipgloss.ASCIIBorder()).Render("Cancel")
+			switch h.exitMenuSelect {
+			case menuSelectSendctrlc:
+				sendCtrlc = highlightColor.Border(lipgloss.ASCIIBorder()).Render("Sendctrlc")
+			case menuSelectExit:
+				exit = highlightColor.Border(lipgloss.ASCIIBorder()).Render("Exit interactive mode")
+			case menuSelectCancel:
+				cancel = highlightColor.Border(lipgloss.ASCIIBorder()).Render("Cancel")
+			}
+			return tea.NewView(lipgloss.JoinVertical(lipgloss.Center, sendCtrlc, exit, cancel))
+		}
 	}
 
-	sticky := darkGreenGut
+	cmdLine := h.command.CommandLine()
+	if h.showStderr {
+		cmdLine = highlightColor.Render(cmdLine)
+	}
+
+	if h.interactiveMode {
+		cmdLine = cmdLine + " " + highlightColor.Render("[interactive]")
+	}
+
+	sticky := inactiveColor
 	if h.targetIndex != h.currentIndex || h.targetIndex < 0 {
-		sticky = brightGreenGut
+		sticky = activeColor
 	}
 	if h.currentIndex >= 0 {
 		i := sticky.Render(fmt.Sprintf("[%d]", h.currentIndex))
@@ -184,9 +293,9 @@ func (h *StdoutViewer) updateContent() {
 }
 
 func unselected(ctx viewport.GutterContext) string {
-	return brightGreenGut.Render("│")
+	return activeColor.Render("│")
 }
 
 func selected(ctx viewport.GutterContext) string {
-	return darkGreenGut.Render("│")
+	return inactiveColor.Render("│")
 }
