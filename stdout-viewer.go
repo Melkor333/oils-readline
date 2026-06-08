@@ -91,13 +91,13 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case menuSelectExit:
 					h.interactiveMode = false
 					h.exitMenuSelect = menuSelectHidden
-					return h, nil
+					return h, ReleaseCapture()
 				case menuSelectCancel:
 					h.exitMenuSelect = menuSelectHidden
 					return h, nil
 				}
 				return h, nil
-			case "h":
+			case "k":
 				if h.exitMenuSelect != menuSelectHidden {
 					if h.exitMenuSelect == menuSelectSendctrlc {
 						return h, nil
@@ -105,7 +105,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					h.exitMenuSelect--
 					return h, nil
 				}
-			case "l":
+			case "j":
 				if h.exitMenuSelect != menuSelectHidden {
 					if h.exitMenuSelect == menuSelectCancel {
 						return h, nil
@@ -113,7 +113,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					h.exitMenuSelect += 1
 					return h, nil
 				}
-			case "e":
+			case "ctrl+c":
 				if h.exitMenuSelect == menuSelectHidden {
 					h.exitMenuSelect = menuSelectSendctrlc
 					return h, nil
@@ -129,7 +129,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if h.command != nil {
 				h.interactiveMode = true
-				return h, nil
+				return h, RequestCapture()
 			}
 		case "h":
 			if h.targetIndex >= 0 {
@@ -173,7 +173,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.view.LeftGutterFunc = selected
 			h.updateContent()
 		}
-		return h, nil
+		return h, ReleaseCapture()
 
 	// can't interact with a done command
 	case shell.CommandDoneMsg:
@@ -181,7 +181,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.interactiveMode = false
 			h.exitMenuSelect = menuSelectHidden
 		}
-		return h, nil
+		return h, ReleaseCapture()
 
 	case shell.HistoryEntryMsg:
 		log.Printf("New Command with index %v: %v", msg.Index, msg)

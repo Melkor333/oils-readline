@@ -27,6 +27,24 @@ type RequestFocusPrevMsg struct{}
 type RequestFocusNextMsg struct{}
 type RequestFocusMainMsg struct{} // Go to main
 
+// Sent by a widget to request all input
+func RequestCapture() tea.Cmd {
+	return func() tea.Msg { return requestCaptureMsg{} }
+}
+
+type requestCaptureMsg struct{ id uint64 }
+
+func (msg requestCaptureMsg) Tag(t uint64) tea.Msg { msg.id = t; return msg }
+
+// Sent by a widget to stop receiving all input
+func ReleaseCapture() tea.Cmd {
+	return func() tea.Msg { return releaseCaptureMsg{} }
+}
+
+type releaseCaptureMsg struct{ id uint64 }
+
+func (msg releaseCaptureMsg) Tag(t uint64) tea.Msg { msg.id = t; return msg }
+
 type RemoveSelfMsg struct{ id uint64 }
 type removeWidgetMsg struct{ id uint64 }
 
@@ -67,8 +85,9 @@ type model struct {
 	//highlighter Highlighter
 	program *tea.Program
 
-	selecting bool
-	selector  *SelectorWidget
+	selecting     bool
+	selector      *SelectorWidget
+	captureWidget int // index of widget capturing all keys, -1 = none
 }
 
 func NewModel(shells []shell.Shell, widgets []tea.Model) *model {
@@ -81,11 +100,12 @@ func NewModel(shells []shell.Shell, widgets []tea.Model) *model {
 		s[i] = trackedShell{shell, uint64(i)}
 	}
 	return &model{
-		shells:       s,
-		nextShellID:  uint64(len(shells)),
-		layout:       tiling.New(),
-		widgets:      entries,
-		nextWidgetID: uint64(len(widgets)),
+		shells:        s,
+		nextShellID:   uint64(len(shells)),
+		layout:        tiling.New(),
+		widgets:       entries,
+		nextWidgetID:  uint64(len(widgets)),
+		captureWidget: -1,
 	}
 }
 
@@ -135,6 +155,9 @@ func (m *model) AddShell(shell shell.Shell) tea.Cmd {
 func (m *model) RemoveChild(index int) tea.Cmd {
 	if index < 0 || index >= len(m.widgets) {
 		return nil
+	}
+	if m.captureWidget == index {
+		m.captureWidget -= 1
 	}
 	m.widgets = append(m.widgets[:index], m.widgets[index+1:]...)
 	if m.widgetFocus >= len(m.widgets) {
@@ -190,6 +213,7 @@ func (m *model) Init() tea.Cmd {
 			})
 	}
 	for _, c := range m.widgets {
+		log.Printf("Initiating")
 		cmds = append(cmds, c.Init())
 	}
 	return tea.Batch(cmds...)
@@ -258,6 +282,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Second switch: handle all other cases, returning normally.
 	switch msg := msg.(type) {
+	case releaseCaptureMsg:
+		m.captureWidget = -1
+		return m, nil
+
+	case requestCaptureMsg:
+		for i, w := range m.widgets {
+			if w.id == msg.id {
+				m.captureWidget = i
+			}
+		}
+
 	case tea.KeyPressMsg:
 		if m.selecting {
 			newSel, cmd := m.selector.Update(msg)
@@ -265,6 +300,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selector = c
 			}
 			return m, cmd
+		}
+
+		// Capture mode: all keypresses go to the capturing widget
+		if m.captureWidget >= 0 && m.captureWidget < len(m.widgets) {
+			log.Printf("Send capture to widget")
+			return m, m.updateChild(m.captureWidget, msg)
 		}
 
 		switch msg.String() {
@@ -280,6 +321,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.selector.Init()
 		case "ctrl+c":
 			if len(m.widgets) > 0 {
+				log.Printf("Removing child %v", m.widgetFocus)
 				return m, m.RemoveChild(m.widgetFocus)
 			}
 			return m, func() tea.Msg { return tea.Quit() }
@@ -347,7 +389,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// TODO: Should be cast to CommandDone?
 	case tea.EnvMsg:
-		log.Print("Got env")
+		log.Print("Got env from tea process")
 	}
 
 	if tmsg, ok := msg.(shell.TargetedMsg); ok {

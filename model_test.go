@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"os"
 	"testing"
@@ -264,6 +265,80 @@ func makeModels(labels []string) []tea.Model {
 		models[i] = newBlock(l, "5")
 	}
 	return models
+}
+
+// captureMockModel implements KeySink to capture all keypresses and print them.
+type captureMockModel struct {
+	received        []tea.KeyPressMsg
+	alreadyCaptured bool
+}
+
+func newCaptureMock() *captureMockModel {
+	return &captureMockModel{}
+}
+
+func (m *captureMockModel) Init() tea.Cmd { return RequestCapture() }
+
+func (m *captureMockModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		m.received = append(m.received, msg)
+		log.Printf("capture mock received: %s\n", msg.String())
+		if msg.String() == "q" {
+			return m, ReleaseCapture()
+		}
+	}
+	if !m.alreadyCaptured {
+		m.alreadyCaptured = true
+		return m, RequestCapture()
+	}
+	return m, nil
+}
+
+func (m *captureMockModel) View() tea.View {
+	return tea.NewView("capture")
+}
+
+func TestKeyCapture(t *testing.T) {
+	m := NewModel(S, []tea.Model{newCaptureMock()})
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+
+	// We need to wait for the Init functions to run
+	time.Sleep(time.Millisecond * 10)
+	// Send ctrl+c — should be routed to the capture mock, not remove the widget
+	tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+
+	// Send 'q' to exit capture mode
+	tm.Send(tea.KeyPressMsg{Code: 'q'})
+
+	// Send ctrl+c — should be routed to the capture mock, not remove the widget
+	tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+
+	// Send 'q' to exit capture mode
+	tm.Send(tea.KeyPressMsg{Code: 'q'})
+
+	tm.Quit()
+	final := tm.FinalModel(t)
+	model := final.(*model)
+
+	// The capture mock should have received ctrl+c and q — total 2 keys
+	t.Logf("widget count: %v", len(model.widgets))
+	for _, w := range model.widgets {
+		if cm, ok := w.Model.(*captureMockModel); ok {
+			if len(cm.received) != 4 {
+				t.Fatalf("expected 4 keypresses, got %d", len(cm.received))
+			}
+			if cm.received[0].String() != "ctrl+c" {
+				t.Errorf("expected first key to be ctrl+c, got %q", cm.received[0].String())
+			}
+			if cm.received[2].String() != "ctrl+c" {
+				t.Errorf("expected first key to be ctrl+c, got %q", cm.received[0].String())
+			}
+			return
+		}
+	}
+	t.Fatal("captureMockModel not found in widgets")
 }
 
 func insertStringAt(s []string, i int, v string) []string {
