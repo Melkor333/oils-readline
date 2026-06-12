@@ -163,6 +163,10 @@ func (c *Command) SetState(s shell.CommandState) {
 	c.state.Store(int32(s))
 }
 
+func (c *Command) Resize(size *pty.Winsize) error {
+	return pty.Setsize(c.stdin, size)
+}
+
 func (c *Command) Error() string {
 	return "Capturing Exit code is not yet implemented"
 }

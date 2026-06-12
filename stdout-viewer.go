@@ -3,12 +3,13 @@ package main
 import (
 	"fmt"
 	"log"
-	"strings"
 
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/creack/pty"
+	"github.com/muesli/reflow/wrap"
 
 	"github.com/Melkor333/oils-readline/shell"
 )
@@ -16,7 +17,6 @@ import (
 type StdoutViewer struct {
 	command         shell.Command
 	view            viewport.Model
-	isFocussed      bool
 	targetIndex     int
 	currentIndex    int
 	showStderr      bool
@@ -138,6 +138,12 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if h.commandRunning() {
 				h.interactiveMode = true
+				if h.command != nil {
+					h.command.Resize(&pty.Winsize{
+						Cols: uint16(h.Width),
+						Rows: uint16(h.Height),
+					})
+				}
 				return h, RequestCapture()
 			}
 		case "h":
@@ -179,7 +185,6 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				viewport.WithHeight(max(0, h.Height-1)),
 			)
 			h.view.FillHeight = false
-			h.view.LeftGutterFunc = selected
 			h.updateContent()
 		}
 		return h, ReleaseCapture()
@@ -215,13 +220,20 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.Height = msg.Height
 		h.view.SetWidth(msg.Width)
 		h.view.SetHeight(max(0, h.Height-1))
+		if h.interactiveMode && h.command != nil {
+			h.command.Resize(&pty.Winsize{
+				Cols: uint16(msg.Width),
+				Rows: uint16(msg.Height),
+			})
+		}
 		return h, nil
 
 	case shell.StdoutMsg:
-		log.Print("Stdout output received")
+		log.Print("Stdout output received:")
 		if h.currentIndex < 0 && h.command == msg.Cmd {
 			h.updateContent()
 		}
+		log.Print(h.view.GetContent())
 		return h, nil
 
 	case shell.StderrMsg:
@@ -229,15 +241,6 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if h.currentIndex < 0 && h.command == msg.Cmd && h.showStderr {
 			h.updateContent()
 		}
-		return h, nil
-
-	case tea.BlurMsg:
-		h.view.LeftGutterFunc = unselected
-		h.isFocussed = false
-
-	case tea.FocusMsg:
-		h.view.LeftGutterFunc = selected
-		h.isFocussed = true
 		return h, nil
 	}
 
@@ -300,14 +303,6 @@ func (h *StdoutViewer) updateContent() {
 	if h.showStderr {
 		output = h.command.Stderr()
 	}
-	output = strings.Trim(output, "\r\n")
+	output = wrap.String(output, h.Width)
 	h.view.SetContent(output)
-}
-
-func unselected(ctx viewport.GutterContext) string {
-	return activeColor.Render("│")
-}
-
-func selected(ctx viewport.GutterContext) string {
-	return inactiveColor.Render("│")
 }

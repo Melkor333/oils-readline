@@ -79,4 +79,5 @@ type Command interface {
 	SetOnStderr(fn func())
 	State() CommandState
 	SetState(CommandState)
+	Resize(size *pty.Winsize) error
 }

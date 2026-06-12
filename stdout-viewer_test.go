@@ -2,10 +2,12 @@ package main
 
 import (
 	"io"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/Melkor333/oils-readline/shell"
+	"github.com/creack/pty"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,18 +18,19 @@ type fakeCommand struct {
 	state       shell.CommandState
 }
 
-func (f *fakeCommand) Run()                            {}
-func (f *fakeCommand) CommandLine() string             { return f.commandLine }
-func (f *fakeCommand) Wait()                           {}
-func (f *fakeCommand) Stdin() io.Writer                { return io.Discard }
-func (f *fakeCommand) Stdout() string                  { return f.stdout }
-func (f *fakeCommand) Stderr() string                  { return f.stderr }
-func (f *fakeCommand) SetStdout(stdout io.Reader)      {}
-func (f *fakeCommand) SetStdin(stdin io.Writer)        {}
-func (f *fakeCommand) SetOnStdout(fn func())           {}
-func (f *fakeCommand) SetOnStderr(fn func())           {}
-func (f *fakeCommand) State() shell.CommandState       { return f.state }
-func (f *fakeCommand) SetState(s shell.CommandState)   { f.state = s }
+func (f *fakeCommand) Run()                          {}
+func (f *fakeCommand) Resize(_ *pty.Winsize) error   { return nil }
+func (f *fakeCommand) CommandLine() string           { return f.commandLine }
+func (f *fakeCommand) Wait()                         {}
+func (f *fakeCommand) Stdin() io.Writer              { return io.Discard }
+func (f *fakeCommand) Stdout() string                { return f.stdout }
+func (f *fakeCommand) Stderr() string                { return f.stderr }
+func (f *fakeCommand) SetStdout(stdout io.Reader)    {}
+func (f *fakeCommand) SetStdin(stdin io.Writer)      {}
+func (f *fakeCommand) SetOnStdout(fn func())         {}
+func (f *fakeCommand) SetOnStderr(fn func())         {}
+func (f *fakeCommand) State() shell.CommandState     { return f.state }
+func (f *fakeCommand) SetState(s shell.CommandState) { f.state = s }
 
 func newFakeCmd(cmdLine, output string) shell.Command {
 	return &fakeCommand{commandLine: cmdLine, stdout: output}
@@ -126,11 +129,11 @@ func TestStdoutViewerViewEmpty(t *testing.T) {
 func TestStdoutViewerCommandAlwaysVisible(t *testing.T) {
 	h := newStdoutViewer()
 
-	longOutput := ""
+	var longOutput strings.Builder
 	for range 50 {
-		longOutput += "line\n"
+		longOutput.WriteString("line\n")
 	}
-	cmd := newFakeCmd("my-cmd", longOutput)
+	cmd := newFakeCmd("my-cmd", longOutput.String())
 
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 5})
 	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
@@ -148,12 +151,12 @@ func TestStdoutViewerCommandAlwaysVisible(t *testing.T) {
 func TestStdoutViewerScrollingWithJK(t *testing.T) {
 	h := newStdoutViewer()
 
-	longOutput := ""
+	var longOutput strings.Builder
 	for i := range 50 {
-		longOutput += "line " + string(rune('A'+i%26)) + "\n"
+		longOutput.WriteString("line " + string(rune('A'+i%26)) + "\n")
 	}
 
-	cmd := newFakeCmd("big-command", longOutput)
+	cmd := newFakeCmd("big-command", longOutput.String())
 
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
 	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
@@ -169,20 +172,6 @@ func TestStdoutViewerScrollingWithJK(t *testing.T) {
 	newY := h.view.YOffset()
 	h = updateStdoutViewer(t, h, tea.KeyPressMsg{Code: 'k'})
 	assert.Less(t, h.view.YOffset(), newY, "k should scroll back up")
-}
-
-func TestStdoutViewerFocusBlur(t *testing.T) {
-	h := newStdoutViewer()
-
-	cmd := newFakeCmd("echo test", "test\n")
-	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
-
-	h = updateStdoutViewer(t, h, tea.FocusMsg{})
-	assert.True(t, h.isFocussed)
-
-	h = updateStdoutViewer(t, h, tea.BlurMsg{})
-	assert.False(t, h.isFocussed)
 }
 
 func TestStdoutViewerWindowSizeUpdate(t *testing.T) {
