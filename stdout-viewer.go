@@ -119,9 +119,14 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return h, nil
 				}
 			}
-			key := msg.Text
+			var key rune
+			if msg.ShiftedCode != key {
+				key = msg.ShiftedCode
+			} else {
+				key = msg.Code
+			}
 			return h, func() tea.Msg {
-				h.WriteStdin([]byte(key))
+				h.WriteStdin([]byte{byte(key)})
 				return nil
 			}
 		}

@@ -72,9 +72,12 @@ func New() (*Shell, error) {
 			syscall.Chmod(filePath, 0700)
 		}
 		shell.cmd = exec.CommandContext(ctx, filePath, "--headless")
+
 	} else {
 		shell.cmd = exec.CommandContext(ctx, *fanosShellPath, "--headless")
 	}
+	// Make the shell a new process group
+	shell.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: 0}
 
 	// Using a socket for communication with the shell
 	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)

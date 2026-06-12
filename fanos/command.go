@@ -3,17 +3,14 @@ package fanos
 import (
 	"context"
 	"io"
-	"log"
 	"os"
 	"strings"
 	"sync"
 
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/creack/pty"
-
 	//"github.com/mcpherrinm/multireader"
 	//"github.com/muesli/cancelreader"
-	"golang.org/x/term"
 )
 
 // Implementation of the tea.ExecCommand interface for fanos
@@ -91,13 +88,6 @@ func (shell *Shell) Command(commandLine string, size *pty.Winsize) (shell.Comman
 
 	c.tty = tty
 	pty.Setsize(ptmx, size)
-
-	var descriptor int
-	descriptor = int(ptmx.Fd())
-	_, err = term.MakeRaw(descriptor)
-	if err != nil {
-		log.Println("Couldn't make file raw")
-	}
 
 	c.stdin = ptmx
 
