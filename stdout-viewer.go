@@ -26,6 +26,10 @@ type StdoutViewer struct {
 	Height          int
 }
 
+func (h *StdoutViewer) commandRunning() bool {
+	return h.command != nil && (h.command.State() == shell.Queued || h.command.State() == shell.Started)
+}
+
 var (
 	activeColor    = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // bright green
 	inactiveColor  = lipgloss.NewStyle().Foreground(lipgloss.Color("22")) // dark green
@@ -132,7 +136,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "enter":
-			if h.command != nil {
+			if h.commandRunning() {
 				h.interactiveMode = true
 				return h, RequestCapture()
 			}
@@ -180,7 +184,6 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, ReleaseCapture()
 
-	// can't interact with a done command
 	case shell.CommandDoneMsg:
 		if h.interactiveMode {
 			h.interactiveMode = false
@@ -268,6 +271,10 @@ func (h *StdoutViewer) View() tea.View {
 	cmdLine := h.command.CommandLine()
 	if h.showStderr {
 		cmdLine = highlightColor.Render(cmdLine)
+	}
+
+	if h.commandRunning() {
+		cmdLine = activeColor.Render("● ") + cmdLine
 	}
 
 	if h.interactiveMode {

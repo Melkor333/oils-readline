@@ -9,6 +9,15 @@ import (
 	"github.com/creack/pty"
 )
 
+type CommandState int32
+
+const (
+	Ready CommandState = iota
+	Queued
+	Started
+	Stopped
+)
+
 type CommandOutputErrorMsg error
 type NewCommandMsg struct{ Cmd Command }
 type CommandDoneMsg struct{ Cmd Command }
@@ -68,4 +77,6 @@ type Command interface {
 	SetStdin(stdin io.Writer)
 	SetOnStdout(fn func())
 	SetOnStderr(fn func())
+	State() CommandState
+	SetState(CommandState)
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/creack/pty"
@@ -29,6 +30,7 @@ type Command struct {
 	stderrIn *os.File
 	wg       *sync.WaitGroup
 	lock     *sync.Mutex
+	state    atomic.Int32
 }
 
 func (c *Command) CommandLine() string {
@@ -67,12 +69,13 @@ func (c *Command) SetOnStderr(fn func()) {
 	c.onStderr = fn
 }
 
-func (shell *Shell) Command(commandLine string, size *pty.Winsize) (shell.Command, error) {
+func (sh *Shell) Command(commandLine string, size *pty.Winsize) (shell.Command, error) {
 	var err error
 	var c *Command = new(Command)
 	// check errors
+	c.SetState(shell.Ready)
 	c.commandline = commandLine
-	c.shell = shell
+	c.shell = sh
 	c.stdoutBuf = new(strings.Builder)
 	c.stderrBuf = new(strings.Builder)
 	c.ctx, c.Cancel = context.WithCancel(context.Background())
@@ -142,13 +145,22 @@ func (c *Command) Wait() {
 }
 
 func (c *Command) Run() {
-	// Cleanup the "help" line
+	c.SetState(shell.Started)
 	err := c.shell.Run(c.commandline, c.tty, c.tty, c.stderrIn)
 
 	c.wg.Done()
 	if err != nil {
 		c.err = err
 	}
+	c.SetState(shell.Stopped)
+}
+
+func (c *Command) State() shell.CommandState {
+	return shell.CommandState(c.state.Load())
+}
+
+func (c *Command) SetState(s shell.CommandState) {
+	c.state.Store(int32(s))
 }
 
 func (c *Command) Error() string {

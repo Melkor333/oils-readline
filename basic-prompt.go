@@ -13,7 +13,8 @@ import (
 )
 
 var (
-	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
+	promptStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
+	waitingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3")) // yellow
 )
 
 type basicPrompt struct {
@@ -75,9 +76,14 @@ func (bp *basicPrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		bp.input.SetWidth(msg.Width)
 		return bp, nil
 
+	case shell.NewCommandMsg:
+		bp.waiting = true
+		bp.input.Prompt = waitingStyle.Render("busy... ")
+		return bp, nil
+
 	case shell.CommandDoneMsg:
-		bp.input.Prompt = promptStyle.Render(bp.shell.GetPrompt())
 		bp.waiting = false
+		bp.input.Prompt = promptStyle.Render(bp.shell.GetPrompt())
 		if bp.focussed {
 			return bp, bp.input.Focus()
 		}

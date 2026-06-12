@@ -13,18 +13,21 @@ type fakeCommand struct {
 	commandLine string
 	stdout      string
 	stderr      string
+	state       shell.CommandState
 }
 
-func (f *fakeCommand) Run()                       {}
-func (f *fakeCommand) CommandLine() string        { return f.commandLine }
-func (f *fakeCommand) Wait()                      {}
-func (f *fakeCommand) Stdin() io.Writer           { return io.Discard }
-func (f *fakeCommand) Stdout() string             { return f.stdout }
-func (f *fakeCommand) Stderr() string             { return f.stderr }
-func (f *fakeCommand) SetStdout(stdout io.Reader) {}
-func (f *fakeCommand) SetStdin(stdin io.Writer)   {}
-func (f *fakeCommand) SetOnStdout(fn func())      {}
-func (f *fakeCommand) SetOnStderr(fn func())      {}
+func (f *fakeCommand) Run()                            {}
+func (f *fakeCommand) CommandLine() string             { return f.commandLine }
+func (f *fakeCommand) Wait()                           {}
+func (f *fakeCommand) Stdin() io.Writer                { return io.Discard }
+func (f *fakeCommand) Stdout() string                  { return f.stdout }
+func (f *fakeCommand) Stderr() string                  { return f.stderr }
+func (f *fakeCommand) SetStdout(stdout io.Reader)      {}
+func (f *fakeCommand) SetStdin(stdin io.Writer)        {}
+func (f *fakeCommand) SetOnStdout(fn func())           {}
+func (f *fakeCommand) SetOnStderr(fn func())           {}
+func (f *fakeCommand) State() shell.CommandState       { return f.state }
+func (f *fakeCommand) SetState(s shell.CommandState)   { f.state = s }
 
 func newFakeCmd(cmdLine, output string) shell.Command {
 	return &fakeCommand{commandLine: cmdLine, stdout: output}
@@ -256,7 +259,6 @@ func TestStdoutViewerStderrRedCommandLine(t *testing.T) {
 
 func TestStdoutViewerStderrMsgUpdatesContent(t *testing.T) {
 	h := newStdoutViewer()
-
 	cmd := &fakeCommand{commandLine: "cmd", stdout: "", stderr: ""}
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
 	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
@@ -267,4 +269,71 @@ func TestStdoutViewerStderrMsgUpdatesContent(t *testing.T) {
 	cmd.stderr = "error!\n"
 	h = updateStdoutViewer(t, h, shell.StderrMsg{Cmd: cmd})
 	assert.Contains(t, h.view.View(), "error!")
+}
+
+func TestStdoutViewerRunningState(t *testing.T) {
+	h := newStdoutViewer()
+	cmd := newFakeCmd("echo hi", "hi\n")
+
+	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Ready state — not running
+	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	assert.False(t, h.commandRunning(), "should not be running when state is Ready")
+
+	// Started state
+	cmd.SetState(shell.Started)
+	assert.True(t, h.commandRunning(), "should be running when state is Started")
+
+	// Queued state
+	cmd.SetState(shell.Queued)
+	assert.True(t, h.commandRunning(), "should be running when state is Queued")
+
+	// Stopped state
+	cmd.SetState(shell.Stopped)
+	assert.False(t, h.commandRunning(), "should not be running when state is Stopped")
+}
+
+func TestStdoutViewerRunningIndicatorInView(t *testing.T) {
+	h := newStdoutViewer()
+	cmd := newFakeCmd("echo hi", "hi\n")
+
+	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
+	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	cmd.SetState(shell.Started)
+
+	fullView := h.View().Content
+	assert.Contains(t, fullView, "echo hi", "command line should be visible")
+	assert.Contains(t, fullView, "●", "running indicator should be present when Started")
+
+	cmd.SetState(shell.Stopped)
+
+	fullView = h.View().Content
+	assert.NotContains(t, fullView, "●", "running indicator should disappear when Stopped")
+}
+
+func TestStdoutViewerInteractiveModeRequiresRunning(t *testing.T) {
+	h := newStdoutViewer()
+	cmd := newFakeCmd("sleep 1", "")
+
+	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
+	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, tea.FocusMsg{})
+
+	// Started state — should enter interactive mode
+	cmd.SetState(shell.Started)
+	result, cmd1 := h.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	h = result.(*StdoutViewer)
+	assert.True(t, h.interactiveMode, "should enter interactive mode while running")
+	assert.NotNil(t, cmd1, "should return a command (RequestCapture)")
+
+	// Cancel interactive mode
+	h.interactiveMode = false
+
+	// Stopped state — should NOT enter interactive mode
+	cmd.SetState(shell.Stopped)
+	result2, cmd2 := h.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	h = result2.(*StdoutViewer)
+	assert.False(t, h.interactiveMode, "should NOT enter interactive mode when not running")
+	assert.Nil(t, cmd2, "should NOT return RequestCapture when not running")
 }

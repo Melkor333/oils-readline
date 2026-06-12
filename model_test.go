@@ -34,20 +34,22 @@ func (m *MockShell) Complete([][]rune, int, int) (string, editline.Completions) 
 func (m *MockShell) Dir() string                                                { return "" }
 func (m *MockShell) Wait()                                                      { time.Sleep(time.Millisecond) }
 
-type MockCommand struct{}
-
-func (m *MockCommand) Run() {}
-func (m *MockCommand) CommandLine() string {
-	return ""
+type MockCommand struct {
+	state shell.CommandState
 }
-func (m *MockCommand) Wait()                      {}
-func (m *MockCommand) Stdin() io.Writer           { return io.Discard }
-func (m *MockCommand) Stdout() string             { return "" }
-func (m *MockCommand) Stderr() string             { return "" }
-func (m *MockCommand) SetStdout(stdout io.Reader) {}
-func (m *MockCommand) SetStdin(stdin io.Writer)   {}
-func (m *MockCommand) SetOnStdout(fn func())      {}
-func (m *MockCommand) SetOnStderr(fn func())      {}
+
+func (m *MockCommand) Run()                            {}
+func (m *MockCommand) CommandLine() string             { return "" }
+func (m *MockCommand) Wait()                           {}
+func (m *MockCommand) Stdin() io.Writer                { return io.Discard }
+func (m *MockCommand) Stdout() string                  { return "" }
+func (m *MockCommand) Stderr() string                  { return "" }
+func (m *MockCommand) SetStdout(stdout io.Reader)      {}
+func (m *MockCommand) SetStdin(stdin io.Writer)        {}
+func (m *MockCommand) SetOnStdout(fn func())           {}
+func (m *MockCommand) SetOnStderr(fn func())           {}
+func (m *MockCommand) State() shell.CommandState       { return m.state }
+func (m *MockCommand) SetState(s shell.CommandState)   { m.state = s }
 
 type blockModel struct {
 	width  int

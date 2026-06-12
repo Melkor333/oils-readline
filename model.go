@@ -375,6 +375,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			log.Fatal("Can't create new Command!", err)
 		}
+		cmd.SetState(shell.Queued)
 
 		cmd.SetOnStdout(func() { m.program.Send(shell.StdoutMsg{Cmd: cmd}) })
 		cmd.SetOnStderr(func() { m.program.Send(shell.StderrMsg{Cmd: cmd}) })
