@@ -76,7 +76,8 @@ type model struct {
 	widgetFocus  int
 	nextWidgetID uint64
 
-	history []shell.Command
+	history      []shell.Command
+	historyIndex int // -1 = not viewing history; 0..len-1 = viewing specific entry
 
 	layout *tiling.Layout
 	Height int
@@ -203,6 +204,42 @@ func (m *model) updateChild(i int, msg tea.Msg) tea.Cmd {
 	return wrapChildCmd(cmd, m.widgets[i].id)
 }
 
+func (m *model) broadcastCommand(cmd shell.Command) tea.Cmd {
+	msg := shell.CommandMsg{Cmd: cmd}
+	var cmds []tea.Cmd
+	for i := range m.widgets {
+		cmds = append(cmds, m.updateChild(i, msg))
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *model) nextHistory() tea.Cmd {
+	if len(m.history) == 0 {
+		return nil
+	}
+	if m.historyIndex < 0 || m.historyIndex >= len(m.history)-1 {
+		// Already at newest or not viewing history — stay at newest
+		return nil
+	}
+	m.historyIndex++
+	return m.broadcastCommand(m.history[m.historyIndex])
+}
+
+func (m *model) prevHistory() tea.Cmd {
+	if len(m.history) == 0 {
+		return nil
+	}
+	if m.historyIndex < 0 {
+		m.historyIndex = len(m.history) - 1
+	} else if m.historyIndex > 0 {
+		m.historyIndex--
+	} else {
+		// Already at oldest entry
+		return nil
+	}
+	return m.broadcastCommand(m.history[m.historyIndex])
+}
+
 func (m *model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	for i, shell := range m.shells {
@@ -309,10 +346,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-		case "ctrl+l":
+		case "esc":
+			m.historyIndex = -1
+			return m, nil
+		case "ctrl+j":
 			return m.updateFocus(m.widgetFocus + 1)
-		case "ctrl+h":
+		case "ctrl+k":
 			return m.updateFocus(m.widgetFocus - 1)
+		case "ctrl+l":
+			return m, m.nextHistory()
+		case "ctrl+h":
+			return m, m.prevHistory()
 		case "ctrl+space":
 			m.selecting = true
 			m.selector = newWidgetSelector(widgets(m))
@@ -381,10 +425,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd.SetOnStderr(func() { m.program.Send(shell.StderrMsg{Cmd: cmd}) })
 
 		m.history = append(m.history, cmd)
+		m.historyIndex = len(m.history) - 1
 
 		log.Print("Running command")
 		return m, tea.Batch(
-			func() tea.Msg { return shell.NewCommandMsg{Cmd: cmd} },
+			func() tea.Msg { return shell.CommandMsg{Cmd: cmd} },
 			func() tea.Msg { cmd.Run(); return shell.CommandDoneMsg{Cmd: cmd} },
 		)
 

@@ -49,7 +49,7 @@ func TestStdoutViewerShowsLastCommand(t *testing.T) {
 	cmd2 := newFakeCmd("echo world", "world\n")
 
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd1})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd1})
 	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd1})
 
 	assert.Equal(t, "echo hello", h.command.CommandLine())
@@ -57,7 +57,7 @@ func TestStdoutViewerShowsLastCommand(t *testing.T) {
 	assert.Contains(t, fullView, "echo hello")
 	assert.Contains(t, fullView, "hello")
 
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd2})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd2})
 	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd2})
 
 	assert.Equal(t, "echo world", h.command.CommandLine())
@@ -71,7 +71,7 @@ func TestStdoutViewerStdoutUpdatesContent(t *testing.T) {
 
 	cmd := newFakeCmd("ls", "")
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd})
 
 	fullView := h.View().Content
 	assert.Contains(t, fullView, "ls")
@@ -91,11 +91,11 @@ func TestStdoutViewerReplacesPreviousCommand(t *testing.T) {
 	cmd3 := newFakeCmd("echo third", "third\n")
 
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd1})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd1})
 	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd1})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd2})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd2})
 	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd2})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd3})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd3})
 	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd3})
 
 	assert.Equal(t, "echo third", h.command.CommandLine())
@@ -112,8 +112,8 @@ func TestStdoutViewerStdoutForOlderCommandIgnored(t *testing.T) {
 	cmd2 := newFakeCmd("echo new", "new\n")
 
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd1})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd2})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd1})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd2})
 	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd1})
 
 	assert.Equal(t, "echo new", h.command.CommandLine())
@@ -136,7 +136,7 @@ func TestStdoutViewerCommandAlwaysVisible(t *testing.T) {
 	cmd := newFakeCmd("my-cmd", longOutput.String())
 
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 5})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd})
 	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd})
 	h = updateStdoutViewer(t, h, tea.FocusMsg{})
 
@@ -159,7 +159,7 @@ func TestStdoutViewerScrollingWithJK(t *testing.T) {
 	cmd := newFakeCmd("big-command", longOutput.String())
 
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd})
 	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd})
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 5})
 	h = updateStdoutViewer(t, h, tea.FocusMsg{})
@@ -179,7 +179,7 @@ func TestStdoutViewerWindowSizeUpdate(t *testing.T) {
 
 	cmd := newFakeCmd("echo hi", "hi\n")
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd})
 
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 120, Height: 30})
 	assert.Equal(t, 120, h.Width)
@@ -191,7 +191,7 @@ func TestStdoutViewerMultipleStdoutUpdates(t *testing.T) {
 
 	cmd := newFakeCmd("stream-cmd", "")
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd})
 
 	assert.NotContains(t, h.view.View(), "chunk1")
 
@@ -209,7 +209,7 @@ func TestStdoutViewerToggleStderr(t *testing.T) {
 
 	cmd := &fakeCommand{commandLine: "my-cmd", stdout: "out\n", stderr: "err\n"}
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd})
 	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd})
 
 	assert.False(t, h.showStderr)
@@ -235,7 +235,7 @@ func TestStdoutViewerStderrRedCommandLine(t *testing.T) {
 
 	cmd := &fakeCommand{commandLine: "fail-cmd", stdout: "ok\n", stderr: "oops\n"}
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd})
 	h = updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd})
 
 	h = updateStdoutViewer(t, h, tea.FocusMsg{})
@@ -250,7 +250,7 @@ func TestStdoutViewerStderrMsgUpdatesContent(t *testing.T) {
 	h := newStdoutViewer()
 	cmd := &fakeCommand{commandLine: "cmd", stdout: "", stderr: ""}
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd})
 
 	h = updateStdoutViewer(t, h, tea.FocusMsg{})
 	h = updateStdoutViewer(t, h, tea.KeyPressMsg{Code: 'e'})
@@ -267,7 +267,7 @@ func TestStdoutViewerRunningState(t *testing.T) {
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// Ready state — not running
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd})
 	assert.False(t, h.commandRunning(), "should not be running when state is Ready")
 
 	// Started state
@@ -288,7 +288,7 @@ func TestStdoutViewerRunningIndicatorInView(t *testing.T) {
 	cmd := newFakeCmd("echo hi", "hi\n")
 
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd})
 	cmd.SetState(shell.Started)
 
 	fullView := h.View().Content
@@ -306,7 +306,7 @@ func TestStdoutViewerInteractiveModeRequiresRunning(t *testing.T) {
 	cmd := newFakeCmd("sleep 1", "")
 
 	h = updateStdoutViewer(t, h, tea.WindowSizeMsg{Width: 80, Height: 24})
-	h = updateStdoutViewer(t, h, shell.NewCommandMsg{Cmd: cmd})
+	h = updateStdoutViewer(t, h, shell.CommandMsg{Cmd: cmd})
 	h = updateStdoutViewer(t, h, tea.FocusMsg{})
 
 	// Started state — should enter interactive mode

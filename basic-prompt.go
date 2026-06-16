@@ -76,9 +76,12 @@ func (bp *basicPrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		bp.input.SetWidth(msg.Width)
 		return bp, nil
 
-	case shell.NewCommandMsg:
-		bp.waiting = true
-		bp.input.Prompt = waitingStyle.Render("busy... ")
+	case shell.CommandMsg:
+		if msg.Cmd.State() == shell.Queued || msg.Cmd.State() == shell.Started {
+			bp.waiting = true
+			bp.input.Prompt = waitingStyle.Render("busy... ")
+			return bp, nil
+		}
 		return bp, nil
 
 	case shell.CommandDoneMsg:

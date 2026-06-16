@@ -7,3 +7,4 @@ oils-readline
 dist/*
 /fanos/assets/*
 /assets/*
+debug.log

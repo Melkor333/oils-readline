@@ -174,7 +174,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.view, cmd = h.view.Update(msg)
 			return h, cmd
 		}
-	case shell.NewCommandMsg:
+	case shell.CommandMsg:
 		h.interactiveMode = false
 		h.exitMenuSelect = menuSelectHidden
 		if h.targetIndex < 0 {

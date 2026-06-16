@@ -19,7 +19,7 @@ const (
 )
 
 type CommandOutputErrorMsg error
-type NewCommandMsg struct{ Cmd Command }
+type CommandMsg struct{ Cmd Command }
 type CommandDoneMsg struct{ Cmd Command }
 type StdoutMsg struct{ Cmd Command }
 type StderrMsg struct{ Cmd Command }
