@@ -249,9 +249,14 @@ func (m *model) Init() tea.Cmd {
 				return removeShellMsg{uint64(i)}
 			})
 	}
-	for _, c := range m.widgets {
+	for i, c := range m.widgets {
 		log.Printf("Initiating")
 		cmds = append(cmds, c.Init())
+		if i == m.widgetFocus {
+			cmds = append(cmds, m.updateChild(i, tea.FocusMsg{}))
+		} else {
+			cmds = append(cmds, m.updateChild(i, tea.BlurMsg{}))
+		}
 	}
 	return tea.Batch(cmds...)
 }
