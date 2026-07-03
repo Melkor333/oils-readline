@@ -66,33 +66,40 @@ Set Shell "bash"
 Set FontSize 20
 Set Width 1200
 Set Height 600
-Set TypingSpeed 35ms
-
-Hide
+Set TypingSpeed 50ms
 
 # For some reason the second input after startup is fucked up... :(
 
-Type "./oils-readline -oil_path $(which ysh)" Enter Enter Enter
+Hide
 
-Type "cd" Enter
+Type "./oils-readline" Enter
 
-Ctrl+l Enter
+Type "cd /" Enter
 
 Show
 
-Type "echo 'Welcome to Oils-Readline!' > /dev/null" Sleep 300ms  Enter
+Type "echo Welcome to oils-readline" Sleep 500ms Enter Sleep 1s
 
-Type "echo 'A super modern prompt written in Golang for Ysh!' > /dev/null" Sleep 500ms Enter
+Type "echo As you can see, it\'s different >&2" Sleep 500ms Enter Sleep 1s
 
-Type "for c in a b c d e f { echo $[c=>upper()] }" Sleep 100ms Enter Sleep 500ms
+Type "echo it makes use of Oils 'FANOS Mode' to separate stdout \& stderr" Sleep 500ms Enter Sleep 1s
 
-Type "echo It uses Oils as shell and Treesitter Syntax highlighting! > /dev/null" Sleep 400ms Enter
+Type "for c in a b c d e f { echo $[c=>upper()] }" Sleep 500ms Enter Sleep 1s
 
-# we need to echo strings longer than a line :(
-# bubbline will do fuckery otherwise
+Type "ls" Sleep 500ms Enter Sleep 1s
 
-Type "# Look, it has a help as well!" Sleep 100ms Ctrl+h Sleep 1500ms Ctrl+h Sleep 500ms Ctrl+h Sleep 500ms Ctrl+h Sleep 200ms Enter
-
-Enter
+Ctrl+j
+Type "h" Sleep 1s
+Type "h" Sleep 1s
+Type "h" Sleep 1s
+Type "l" Sleep 1s
+Type "s" Sleep 1s
+Ctrl+k
+Type "echo goodbye >&2" Sleep 500ms Enter
 
 Sleep 5s
+
+#Type "echo It uses Oils as shell and Treesitter Syntax highlighting! > /dev/null" Sleep 400ms Enter
+
+#Type "# Look, it has a help as well!" Sleep 100ms Ctrl+h Sleep 1500ms Ctrl+h Sleep 500ms Ctrl+h Sleep 500ms Ctrl+h Sleep 200ms Enter
+
