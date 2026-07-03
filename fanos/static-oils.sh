@@ -1,8 +1,10 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 # Run in a container
-apt update && apt install -y wget gcc g++
+#apt update && apt install -y wget gcc g++
+#Dependencies:
+#wget gcc g++
 
 VERSION=0.37.0
 

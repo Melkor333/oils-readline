@@ -23,7 +23,7 @@ import (
 	"github.com/creack/pty"
 )
 
-//go:generate bash ./static-oils.sh
+//go:generate ./static-oils.sh
 //go:embed assets/oils-for-unix-static.stripped
 var embeddedOils []byte
 
