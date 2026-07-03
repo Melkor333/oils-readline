@@ -1,411 +1,512 @@
 package tiling
 
 import (
-	"math"
+	"image/color"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
-// SplitMode controls how children are arranged.
 type SplitMode int
 
 const (
-	// SplitVertical splits the area vertically (left-right), with the master
-	// area on the left and the stack on the right. This is the default
-	// awesome-wm style layout.
-	SplitVertical SplitMode = iota
-	// SplitHorizontal splits the area horizontally (top-bottom), with the
-	// master area on top and the stack on the bottom.
-	SplitHorizontal
+	Vertical SplitMode = iota
+	Horizontal
 )
 
-// Layout is a list-based tiling layout manager inspired by awesome-wm.
-// It arranges a list of lipgloss strings into a tiled layout with borders
-// between them, returning a single lipgloss string.
-type Layout struct {
-	width  int
-	height int
+const (
+	Left  = 0
+	Right = 1
+)
 
-	borderStyle lipgloss.Style
-	border      lipgloss.Border
-
-	// masterRatio is the proportion of space given to the master area (0.0-1.0).
-	masterRatio float64
-	// masterCount is the number of children in the master area.
-	masterCount int
-
-	splitMode SplitMode
-
-	children []string
+type rec struct {
+	x, y, width, height int
 }
 
-// New creates a new Layout with sensible defaults matching awesome-wm's
-// default tiling behavior: vertical split, one master window, 50/50 ratio.
-func New() *Layout {
-	return &Layout{
-		masterRatio: 0.5,
-		masterCount: 1,
-		splitMode:   SplitVertical,
-		border:      lipgloss.NormalBorder(),
-		borderStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
+func SplitVertical(c int, available rec) (positions []rec) {
+	// we want a border between each 2 nodes
+	w := available.width - c + 1
+	extra := w % c
+	w = w / c
+	for range c {
+		r := available
+		r.width = w
+		// width + border
+		available.x += w + 1
+
+		if extra > 0 {
+			// +1 extra
+			r.width += 1
+			available.x += 1
+			extra--
+		}
+		positions = append(positions, r)
+	}
+	return positions
+}
+
+func SplitHorizontal(c int, available rec) (positions []rec) {
+	// we want a border between each 2 nodes
+	h := available.height - c + 1
+	extra := h % c
+	h = h / c
+	for range c {
+		r := available
+		r.height = h
+		// height + border
+		available.y += h + 1
+
+		if extra > 0 {
+			// +1 extra
+			r.height += 1
+			// height + border + extra
+			available.y += 1
+			extra--
+		}
+		positions = append(positions, r)
+	}
+	return positions
+}
+
+func SplitHorizontalWithMain(c int, available rec) (positions []rec) {
+	big := SplitHorizontal(2, available)
+	positions = append(positions, big[0])
+	small := SplitVertical(c-1, big[1])
+	return append(positions, small...)
+}
+
+func SplitVerticalWithMain(c int, available rec) (positions []rec) {
+	big := SplitVertical(2, available)
+	positions = append(positions, big[0])
+	small := SplitHorizontal(c-1, big[1])
+	return append(positions, small...)
+}
+
+// TODO: Add bit to mark active Node?
+// Border boundary calculation
+const (
+	bitL = 1 << iota
+	bitR
+	bitU
+	bitD
+)
+
+// var roundedBorder = Border{
+//  	Top:          "─",
+//  	Bottom:       "─",
+//  	Left:         "│",
+//  	Right:        "│",
+//  	TopLeft:      "╭",
+//  	TopRight:     "╮",
+//  	BottomLeft:   "╰",
+//  	BottomRight:  "╯",
+//  	MiddleLeft:   "├",
+//  	MiddleRight:  "┤",
+//  	Middle:       "┼",
+//  	MiddleTop:    "┬",
+//  	MiddleBottom: "┴",
+//  }
+
+func borderMap(bs lipgloss.Border) map[int]string {
+	return map[int]string{
+		0:                         " ",
+		bitD:                      bs.Top,
+		bitU:                      bs.Bottom,
+		bitL:                      bs.Left,
+		bitR:                      bs.Right,
+		bitL | bitR:               bs.Left,
+		bitU | bitD:               bs.Bottom,
+		bitR | bitD:               bs.TopLeft,
+		bitL | bitD:               bs.TopRight,
+		bitR | bitU:               bs.BottomLeft,
+		bitL | bitU:               bs.BottomRight,
+		bitL | bitR | bitD:        bs.MiddleTop,
+		bitL | bitR | bitU:        bs.MiddleBottom,
+		bitR | bitU | bitD:        bs.MiddleLeft,
+		bitL | bitU | bitD:        bs.MiddleRight,
+		bitL | bitR | bitU | bitD: bs.Middle,
 	}
 }
 
-// Size sets the total available width and height for the layout.
-func (l *Layout) Size(w, h int) *Layout {
-	l.width = w
-	l.height = h
-	return l
-}
+func (l *Layout) calculateBorders() *lipgloss.Layer {
+	rNode := l.tree
+	root := l.tree.rectangle
 
-// Width sets the total available width.
-func (l *Layout) Width(w int) *Layout {
-	l.width = w
-	return l
-}
-
-// Height sets the total available height.
-func (l *Layout) Height(h int) *Layout {
-	l.height = h
-	return l
-}
-
-// MasterRatio sets the proportion of space given to the master area.
-// The value should be between 0.0 and 1.0.
-func (l *Layout) MasterRatio(r float64) *Layout {
-	l.masterRatio = math.Max(0, math.Min(1, r))
-	return l
-}
-
-// MasterCount sets the number of children in the master area.
-func (l *Layout) MasterCount(n int) *Layout {
-	l.masterCount = n
-	return l
-}
-
-// Split sets the split mode (SplitVertical or SplitHorizontal).
-func (l *Layout) Split(mode SplitMode) *Layout {
-	l.splitMode = mode
-	return l
-}
-
-// BorderStyle sets the style for borders between tiles.
-func (l *Layout) BorderStyle(s lipgloss.Style) *Layout {
-	l.borderStyle = s
-	return l
-}
-
-// Border sets the border characters used between tiles.
-func (l *Layout) Border(b lipgloss.Border) *Layout {
-	l.border = b
-	return l
-}
-
-// Children sets the child lipgloss strings to be tiled.
-func (l *Layout) Children(c ...string) *Layout {
-	l.children = c
-	return l
-}
-
-// Layer computes the tiled layout and returns a Layer with separate
-// widget and border sub-layers.
-func (l *Layout) Layer() *lipgloss.Layer {
-	if len(l.children) == 0 {
+	if root.width == 0 || root.height == 0 {
 		return lipgloss.NewLayer("")
 	}
 
-	if len(l.children) == 1 {
-		return lipgloss.NewLayer(l.placeChild(l.children[0], l.width, l.height))
+	// either 1 or 0 children will result in the same..
+	if len(rNode.children) < 2 {
+		return lipgloss.NewLayer(lipgloss.NewStyle().Width(root.width).Height(root.height).Render("")).X(root.x).Y(root.y)
 	}
 
-	masterN := min(l.masterCount, len(l.children))
-	stackN := len(l.children) - masterN
-	hasBorder := stackN > 0
-
-	var widgets, borders []*lipgloss.Layer
-
-	if l.splitMode == SplitVertical {
-		widgets, borders = l.buildVerticalLayers(masterN, stackN, hasBorder)
-	} else {
-		widgets, borders = l.buildHorizontalLayers(masterN, stackN, hasBorder)
+	// Get a list of all leaf nodes. We only need to calculate leaf nodes.
+	// Or do we? :D
+	var leafs []*Node
+	middles := []*Node{rNode}
+	for c := 0; c < len(middles); c++ {
+		middle := middles[c]
+		for _, child := range middle.children {
+			if len(child.children) > 0 {
+				middles = append(middles, child)
+			} else {
+				leafs = append(leafs, child)
+			}
+		}
 	}
 
-	widgetLayer := lipgloss.NewLayer("", widgets...)
-	borderLayer := lipgloss.NewLayer("", borders...)
+	// Calculate the edges for each leaf node
+	bitMask := make([]int, (root.width)*(root.height))
+	for _, c := range leafs {
+		child := c.rectangle
 
-	return lipgloss.NewLayer("", widgetLayer, borderLayer)
+		// calculate the rectangle for the border
+		// Since we don't draw a border at the edge, we know if a child is at the edge just by checking if it is on the edge.
+		// We also need to adjust border height/width for each applicable border
+		var left, right, top, bottom bool
+		borderW := child.width
+		borderH := child.height
+		borderX := child.x
+		borderY := child.y
+
+		if child.x > root.x {
+			left = true
+			borderX--
+			borderW++
+		}
+		if child.x+child.width < root.x+root.width {
+			right = true
+			borderW++
+		}
+		if child.y > root.y {
+			top = true
+			borderY--
+			borderH++
+		}
+		if child.y+child.height < root.y+root.height {
+			// width is one more
+			borderH++
+			bottom = true
+		}
+
+		line := root.width
+
+		start := borderX + (root.width * borderY)
+		if top || bottom {
+			for c := range borderW {
+				if top {
+					bitMask[start+c] |= bitD
+				}
+				if bottom {
+					bitMask[start+(line*(borderH-1))+c] |= bitU
+				}
+			}
+		}
+
+		if left || right {
+			for c := range borderH {
+				if left {
+					bitMask[start+(line*(c))] |= bitR
+				}
+				if right {
+					bitMask[start+(line*(c))+borderW-1] |= bitL
+				}
+			}
+		}
+	}
+
+	return lipgloss.NewLayer(maskToBorder(bitMask, l.border, root.width, root.height)).Z(1)
 }
 
-func (l *Layout) buildVerticalLayers(masterN, stackN int, hasBorder bool) ([]*lipgloss.Layer, []*lipgloss.Layer) {
-	borderW := 0
-	if hasBorder {
-		borderW = lipgloss.Width(l.borderStyle.Render(string(l.border.Left)))
-	}
-
-	availW := l.width - borderW
-	masterW := max(int(float64(availW)*l.masterRatio), 0)
-	stackW := max(availW-masterW, 0)
-
-	var widgets, borders []*lipgloss.Layer
-
-	// Master column
-	masterHeights := columnHeights(l.height, masterN)
-	y := 0
-	for i := range masterN {
-		content := l.placeChild(l.children[i], masterW, masterHeights[i])
-		widgets = append(widgets, lipgloss.NewLayer(content).X(0).Y(y))
-		y += masterHeights[i]
-		if i < masterN-1 {
-			line := l.borderStyle.Render(l.horizontalBorderLine(masterW))
-			borders = append(borders, lipgloss.NewLayer(line).X(0).Y(y).Z(1))
-			y++
+func maskToBorder(mask []int, borderStyle lipgloss.Border, width int, height int) string {
+	var border strings.Builder
+	bm := borderMap(borderStyle)
+	for y := range height {
+		if y > 0 {
+			border.WriteRune('\n')
+		}
+		for x := range width {
+			border.WriteString(bm[mask[(y*width)+x]])
 		}
 	}
-
-	// Stack column
-	stackX := masterW + borderW
-	stackHeights := columnHeights(l.height, stackN)
-	y = 0
-	for i := range stackN {
-		content := l.placeChild(l.children[masterN+i], stackW, stackHeights[i])
-		widgets = append(widgets, lipgloss.NewLayer(content).X(stackX).Y(y))
-		y += stackHeights[i]
-		if i < stackN-1 {
-			line := l.borderStyle.Render(l.horizontalBorderLine(stackW))
-			borders = append(borders, lipgloss.NewLayer(line).X(stackX).Y(y).Z(1))
-			y++
-		}
-	}
-
-	// Vertical border between master and stack
-	if hasBorder {
-		col := l.borderStyle.Render(l.verticalBorderLine(l.height))
-		borders = append(borders, lipgloss.NewLayer(col).X(masterW).Y(0).Z(1))
-	}
-
-	return widgets, borders
+	return border.String()
 }
 
-func (l *Layout) buildHorizontalLayers(masterN, stackN int, hasBorder bool) ([]*lipgloss.Layer, []*lipgloss.Layer) {
-	borderH := 0
-	if hasBorder {
-		borderH = 1
-	}
+type SplitFunc func(count int, available rec) []rec
 
-	availH := l.height - borderH
-	masterH := max(int(float64(availH)*l.masterRatio), 0)
-	stackH := max(availH-masterH, 0)
-
-	borderW := lipgloss.Width(l.borderStyle.Render(string(l.border.Left)))
-
-	var widgets, borders []*lipgloss.Layer
-
-	// Master row
-	masterWidths := rowWidths(l.width, masterN, borderW)
-	x := 0
-	for i := range masterN {
-		content := l.placeChild(l.children[i], masterWidths[i], masterH)
-		widgets = append(widgets, lipgloss.NewLayer(content).X(x).Y(0))
-		x += masterWidths[i]
-		if i < masterN-1 {
-			col := l.borderStyle.Render(l.verticalBorderLine(masterH))
-			borders = append(borders, lipgloss.NewLayer(col).X(x).Y(0).Z(1))
-			x += borderW
-		}
-	}
-
-	// Stack row
-	stackY := masterH + borderH
-	stackWidths := rowWidths(l.width, stackN, borderW)
-	x = 0
-	for i := range stackN {
-		content := l.placeChild(l.children[masterN+i], stackWidths[i], stackH)
-		widgets = append(widgets, lipgloss.NewLayer(content).X(x).Y(stackY))
-		x += stackWidths[i]
-		if i < stackN-1 {
-			col := l.borderStyle.Render(l.verticalBorderLine(stackH))
-			borders = append(borders, lipgloss.NewLayer(col).X(x).Y(stackY).Z(1))
-			x += borderW
-		}
-	}
-
-	// Horizontal border between master and stack
-	if hasBorder {
-		line := l.borderStyle.Render(l.horizontalBorderLine(l.width))
-		borders = append(borders, lipgloss.NewLayer(line).X(0).Y(masterH).Z(1))
-	}
-
-	return widgets, borders
+type Node struct {
+	children []*Node
+	parent   *Node
+	// TODO: make it a func?
+	positionFunc SplitFunc
+	rectangle    rec
+	//content      string
+	border lipgloss.Border
+	model  tea.Model
 }
 
-func columnHeights(totalH, n int) []int {
-	if n <= 0 {
+func (n *Node) SetBorder(b lipgloss.Border) {
+	n.border = b
+}
+
+func (n *Node) Parent() *Node {
+	return n.parent
+}
+
+func (n *Node) PositionFunc() SplitFunc {
+	return n.positionFunc
+}
+
+func (n *Node) RemoveChild(m tea.Model) bool {
+	for i, c := range n.children {
+		if c.model == m {
+			n.children = append(n.children[:i], n.children[i+1:]...)
+			return true
+		}
+		if c.RemoveChild(m) {
+			return true
+		}
+	}
+	return false
+}
+
+func (n *Node) SetSize(width, height int) {
+	n.rectangle.width = width
+	n.rectangle.height = height
+}
+
+type SimpleNode struct {
+	Node
+	text string
+}
+
+func (n *SimpleNode) Render() string {
+	return n.text
+}
+
+//func (n *SimpleNode) Constraint(width, height int) (int, int, error) {
+//	n.BaseNode.SetSize(width, height)
+//	return width, height, nil
+//}
+
+//type Node interface {
+//	// Implemented by baseNode
+//	SetBorder(lipgloss.Border)
+//	Border() lipgloss.Border
+//	rectangle rec
+//	//BaseNode() *BaseNode
+//	Split(SplitFunc)
+//	Children() []*Node
+//	// TODO: Enhance with constraint
+//	Position(rec)
+//	Parent() *Node
+//	SetParent(*Node)
+//	SetPositionFunc(SplitFunc)
+//	PositionFunc() SplitFunc
+//	// TODO: Rename to AddChild
+//	AddChildren(*Node)
+//	//TODO
+//	// RemoveChild(Node)
+//
+//	// To be implemented by wrapping node
+//	Render() *lipgloss.Layer
+//	//Size() (width, height int)
+//	//Contraint(availableWidth, availableHeight int) (width, height int, err error)
+//}
+
+type NewNodeFunc func(*Node) *Node
+
+type ErrNotWideEnough error
+type ErrNotHighEnough error
+
+// TODO: Split up into Size and Position (2 passes for flutter)
+func (n *Node) Position(available rec) tea.Cmd {
+	n.rectangle = available
+	if n.model != nil {
+		var cmd tea.Cmd
+		n.model, cmd = n.model.Update(tea.WindowSizeMsg{
+			Width:  n.rectangle.width,
+			Height: n.rectangle.height,
+		})
+		return cmd
+	}
+
+	if n.positionFunc == nil {
 		return nil
 	}
-	if n == 1 {
-		return []int{totalH}
-	}
-	availH := max(totalH-(n-1), 0)
-	return distribute(availH, n)
-}
-
-func rowWidths(totalW, n, borderW int) []int {
-	if n <= 0 {
+	switch c := len(n.children); c {
+	case 0:
 		return nil
-	}
-	if n == 1 {
-		return []int{totalW}
-	}
-	availW := max(totalW-borderW*(n-1), 0)
-	return distribute(availW, n)
-}
-
-// placeChild places a child string within a tile of the given dimensions,
-// centering it both horizontally and vertically.
-func (l *Layout) placeChild(child string, width, height int) string {
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, child)
-}
-
-func (l *Layout) borderSize() int {
-	if l.splitMode == SplitVertical {
-		return lipgloss.Width(l.borderStyle.Render(string(l.border.Left)))
-	}
-	return 1
-}
-
-func (l *Layout) horizontalBorderLine(width int) string {
-	b := l.border.Bottom
-	if b == "" {
-		b = "─"
-	}
-
-	line := strings.Repeat(b, width/lipgloss.Width(b))
-
-	// Truncate to exact display width using lipgloss.
-	return lipgloss.NewStyle().Width(width).Render(line)
-}
-
-func (l *Layout) verticalBorderLine(height int) string {
-	middle := l.border.Left
-	if middle == "" {
-		middle = "│"
-	}
-
-	lines := make([]string, height)
-	for i := range lines {
-		lines[i] = middle
-	}
-
-	return lipgloss.JoinVertical(0, lines...)
-}
-
-// TileSize holds the width and height of a single tile.
-type TileSize struct {
-	W, H int
-}
-
-// distribute splits total into n roughly equal parts, distributing
-// remainder cells to the first elements.
-func distribute(total, n int) []int {
-	if n <= 0 {
-		return nil
-	}
-	sizes := make([]int, n)
-	base := total / n
-	remainder := total % n
-	for i := range sizes {
-		sizes[i] = base
-		if i < remainder {
-			sizes[i]++
+	case 1:
+		return n.children[0].Position(available)
+	default:
+		var cmds []tea.Cmd
+		sizes := n.positionFunc(c, available)
+		for c, child := range n.children {
+			cmds = append(cmds, child.Position(sizes[c]))
 		}
+		return tea.Batch(cmds...)
 	}
-	return sizes
 }
 
-// TileSizes calculates the tile dimensions for n children based on the
-// current layout configuration. Returns one TileSize per child.
-// TODO: Should also return x/y placement coordinates and borders
-func (l *Layout) TileSizes(n int) []TileSize {
-	if n == 0 {
-		return nil
+func newNode(m tea.Model, positionFunc SplitFunc) *Node {
+	node := &Node{
+		positionFunc: positionFunc,
+		model:        m,
+		// Prepare left/Right for binary tree
+		// But allow (nested) list-based tiling
+		//children: make([]*Node, 2),
 	}
-	if n == 1 {
-		return []TileSize{{W: l.width, H: l.height}}
-	}
-
-	masterN := min(l.masterCount, n)
-	stackN := n - masterN
-	hasBorder := stackN > 0
-
-	if l.splitMode == SplitVertical {
-		return l.tileSizesVertical(masterN, stackN, n, hasBorder)
-	}
-	return l.tileSizesHorizontal(masterN, stackN, n, hasBorder)
+	return node
 }
 
-func (l *Layout) tileSizesVertical(masterN, stackN, total int, hasBorder bool) []TileSize {
-	borderW := 0
-	if hasBorder {
-		borderW = lipgloss.Width(l.borderStyle.Render(string(l.border.Left)))
-	}
+// TODO: make this a separate func. to e.g. hard limit to 2 elems
+func (n *Node) AddChild(model tea.Model) (*Node, tea.Cmd) {
+	child := newNode(model, n.positionFunc)
+	child.parent = n
+	child.SetBorder(n.border)
+	n.children = append(n.children, child)
+	cmd := n.Position(n.rectangle)
+	return child, cmd
+}
 
-	availW := l.width - borderW
-	masterW := int(float64(availW) * l.masterRatio)
-	stackW := availW - masterW
-	if masterW < 0 {
-		masterW = 0
-	}
-	if stackW < 0 {
-		stackW = 0
-	}
+type Layout struct {
+	tree          *Node
+	focussed      *Node
+	Width, Height int
 
-	sizes := make([]TileSize, total)
-	for i := range masterN {
-		sizes[i] = TileSize{W: masterW, H: l.height}
-	}
+	//splitMode   SplitMode
+	//focusIndex int
 
-	if stackN > 0 {
-		borderH := l.borderSize()
-		availH := max(l.height-borderH*(stackN-1), 0)
-		heights := distribute(availH, stackN)
-		for i := range stackN {
-			sizes[masterN+i] = TileSize{W: stackW, H: heights[i]}
+	border        lipgloss.Border
+	activeColor   color.Color
+	inactiveColor color.Color
+
+	//children []string
+}
+
+func New() *Layout {
+	return &Layout{
+		tree:          newNode(nil, SplitHorizontal),
+		border:        lipgloss.NormalBorder(),
+		activeColor:   lipgloss.Color("2"),
+		inactiveColor: lipgloss.Color("240"),
+	}
+}
+
+func (l *Layout) Size(w, h int) *Layout {
+	l.Width = w
+	l.Height = h
+	l.tree.Position(rec{0, 0, w, h})
+	return l
+}
+
+func (l *Layout) RemoveChild(m tea.Model) {
+	l.tree.RemoveChild(m)
+	l.tree.Position(l.tree.rectangle)
+}
+
+func (l *Layout) Split(split SplitFunc) *Layout {
+	n := l.tree
+	n.Split(split)
+	n.Position(n.rectangle)
+	return l
+}
+
+//func (l *Layout) widgetCount() int {
+//	if l.tree == nil {
+//		return 0
+//	}
+//	c := 0
+//	a := []*Node{l.tree}
+//	for {
+//		if c > len(a) {
+//			break
+//		}
+//		cur := a[c]
+//		for _, child := range cur.children {
+//			if child != nil {
+//				a = append(a, child)
+//			}
+//		}
+//		c++
+//	}
+//	return c
+//}
+
+func (l *Layout) Children(mm ...tea.Model) (*Layout, tea.Cmd) {
+	var cmds []tea.Cmd
+	for _, m := range mm {
+		var cmd tea.Cmd
+		_, cmd = l.tree.AddChild(m)
+		cmds = append(cmds, cmd)
+	}
+	return l, tea.Batch(cmds...)
+}
+
+func (l *Layout) AddChildAt(pos int, m tea.Model) (*Node, tea.Cmd) {
+	n := l.tree
+	child := newNode(m, n.positionFunc)
+	child.parent = n
+	child.SetBorder(n.border)
+	n.children = append(n.children[:pos], append([]*Node{child}, n.children[pos:]...)...)
+	cmd := n.Position(n.rectangle)
+	return child, cmd
+}
+
+func (l *Layout) MasterRatio(float64) *Layout {
+	// TODO: Implement!
+	return l
+}
+
+func (l *Layout) MasterCount(int) *Layout {
+	// TODO: Implement!
+	return l
+}
+
+func (l *Layout) BorderStyle(s lipgloss.Border) *Layout {
+	l.border = s
+	return l
+}
+
+func (l *Layout) Layer() *lipgloss.Layer {
+	content := l.tree.Render()
+	content.AddLayers(l.calculateBorders())
+	return content
+}
+
+func (n *Node) Render() *lipgloss.Layer {
+	// Collect Child Layers if there are any
+	if len(n.children) > 0 {
+		l := lipgloss.NewLayer("")
+		for _, c := range n.children {
+			l.AddLayers(c.Render())
 		}
+		return l
 	}
 
-	return sizes
+	content := ""
+	if n.model != nil {
+		content = n.model.View().Content
+	}
+
+	box := lipgloss.NewStyle().
+		Width(n.rectangle.width).
+		MaxWidth(n.rectangle.width).
+		Height(n.rectangle.height).
+		MaxHeight(n.rectangle.height).
+		Render(content)
+
+	var l *lipgloss.Layer
+	l = lipgloss.NewLayer(box).X(n.rectangle.x).Y(n.rectangle.y).Z(5)
+	return l
 }
 
-func (l *Layout) tileSizesHorizontal(masterN, stackN, total int, hasBorder bool) []TileSize {
-	borderH := 0
-	if hasBorder {
-		borderH = 1
+func (n *Node) Split(split SplitFunc) {
+	n.positionFunc = split
+	for _, c := range n.children {
+		c.Split(split)
 	}
-
-	availH := l.height - borderH
-	masterH := int(float64(availH) * l.masterRatio)
-	stackH := availH - masterH
-	if masterH < 0 {
-		masterH = 0
-	}
-	if stackH < 0 {
-		stackH = 0
-	}
-
-	sizes := make([]TileSize, total)
-	for i := range masterN {
-		sizes[i] = TileSize{W: l.width, H: masterH}
-	}
-
-	if stackN > 0 {
-		borderW := l.borderSize()
-		availW := max(l.width-borderW*(stackN-1), 0)
-		widths := distribute(availW, stackN)
-		for i := range stackN {
-			sizes[masterN+i] = TileSize{W: widths[i], H: stackH}
-		}
-	}
-
-	return sizes
 }

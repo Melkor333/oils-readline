@@ -139,7 +139,7 @@ func TestChildSelfRemove(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	updated2, _ := m2.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	updated, _ = m.Update(removeWidgetMsg{id: 1})
+	updated, _ = m.Update(removeWidgetMsg{w: m.widgets[1]})
 
 	if len(m.widgets) != 2 {
 		t.Fatalf("expected 2 children after removal, got %d", len(m.widgets))
@@ -149,25 +149,27 @@ func TestChildSelfRemove(t *testing.T) {
 }
 
 func TestWrapChildCmd(t *testing.T) {
+	w := &Widget{}
 	removeCmd := func() tea.Msg { return RemoveSelfMsg{} }
-	wrapped := wrapChildCmd(removeCmd, 42)
+	wrapped := wrapChildCmd(removeCmd, w)
 	msg := wrapped()
 	rcm, ok := msg.(RemoveSelfMsg)
 	if !ok {
 		t.Fatalf("expected removeChildMsg, got %T", msg)
 	}
-	if rcm.id != 42 {
-		t.Errorf("expected id 42, got %d", rcm.id)
+	if rcm.w != w {
+		t.Errorf("expected same Widget, got %d", rcm.w)
 	}
 
+	ww := &Widget{}
 	quitCmd := func() tea.Msg { return tea.QuitMsg{} }
-	wrapped2 := wrapChildCmd(quitCmd, 7)
+	wrapped2 := wrapChildCmd(quitCmd, ww)
 	msg2 := wrapped2()
 	if _, ok := msg2.(tea.QuitMsg); !ok {
 		t.Errorf("expected tea.QuitMsg to pass through, got %T", msg2)
 	}
 
-	if wrapChildCmd(nil, 1) != nil {
+	if wrapChildCmd(nil, w) != nil {
 		t.Errorf("expected nil for nil cmd")
 	}
 }
@@ -185,7 +187,7 @@ func TestAddRemoveChild(t *testing.T) {
 		t.Fatalf("expected 2 children, got %d", len(m.widgets))
 	}
 
-	m.RemoveChild(0)
+	m.RemoveChild(m.widgets[0])
 
 	updated, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(*model)
@@ -244,7 +246,7 @@ func TestPropertyAddRemoveChildren(t *testing.T) {
 				} else if canRemove {
 					pos := rng.Intn(len(m.widgets))
 					delete(used, expected[pos])
-					m.RemoveChild(pos)
+					m.RemoveChild(m.widgets[pos])
 					expected = append(expected[:pos], expected[pos+1:]...)
 				}
 			}
@@ -308,7 +310,7 @@ func TestKeyCapture(t *testing.T) {
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
 
 	// We need to wait for the Init functions to run
-	time.Sleep(time.Millisecond * 10)
+	time.Sleep(time.Millisecond * 100)
 	// Send ctrl+c — should be routed to the capture mock, not remove the widget
 	tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 

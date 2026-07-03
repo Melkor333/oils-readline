@@ -23,6 +23,7 @@ import (
 	"flag"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	//  TODO: Once we have chroma highlighting. (Vibecode chroma highlighter from vim highlighter/treesitter maybe?)
 	// editor "github.com/ionut-t/goeditor/adapter-bubbletea"
@@ -99,10 +100,10 @@ func main() {
 		[]shell.Shell{s},
 		[]tea.Model{newBasicPrompt(s), newStdoutViewer(), newStderrViewer()},
 	)
-
-	model.layout.Split(tiling.SplitHorizontal)
-	// TODO: Next that should be done by NewModel
 	defer model.Cancel()
+
+	model.layout.Split(tiling.SplitVerticalWithMain)
+	model.layout.BorderStyle(lipgloss.RoundedBorder())
 
 	p := tea.NewProgram(model)
 	model.program = p

@@ -29,19 +29,13 @@ type RequestHistoryEntryMsg struct {
 	Id    uint64
 }
 
-var _ TaggedMsg = RequestHistoryEntryMsg{}
+// TODO: Uncomment once it's not in the main module anymore
+//var _ TaggedMsg = RequestHistoryEntryMsg{}
+//var _ TargetedMsg = HistoryEntryMsg{}
 
 func (msg RequestHistoryEntryMsg) Tag(id uint64) tea.Msg {
 	msg.Id = id
 	return msg
-}
-
-type TaggedMsg interface {
-	Tag(uint64) tea.Msg
-}
-
-type TargetedMsg interface {
-	TargetWidget() uint64
 }
 
 type HistoryEntryMsg struct {
@@ -52,8 +46,6 @@ type HistoryEntryMsg struct {
 }
 
 func (msg HistoryEntryMsg) TargetWidget() uint64 { return msg.Id }
-
-var _ TargetedMsg = HistoryEntryMsg{}
 
 type Shell interface {
 	//StdIO(*os.File, *os.File, *os.File) error
