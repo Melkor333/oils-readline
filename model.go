@@ -315,7 +315,7 @@ func (m *model) View() tea.View {
 
 	if m.selecting && m.selector != nil {
 		selectorContent := m.selector.View().Content
-		selectorLayer := lipgloss.NewLayer(selectorContent).Z(1)
+		selectorLayer := lipgloss.NewLayer(selectorContent).Z(100)
 		result := lipgloss.NewCompositor(base, selectorLayer)
 		v := tea.NewView(result.Render())
 		v.AltScreen = true
