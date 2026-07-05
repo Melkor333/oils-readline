@@ -65,13 +65,6 @@ type CompletionResult struct {
 
 type ExecType int
 
-const (
-	// Run Command blocking in the foreground
-	Blocking ExecType = iota
-	// Alt mode runs commands themselves in normal mode, but the readline itself is in alt mode!
-	AltMode
-)
-
 func main() {
 	flag.Parse()
 
@@ -98,7 +91,7 @@ func main() {
 
 	model := NewModel(
 		[]shell.Shell{s},
-		[]tea.Model{newBasicPrompt(s), newStdoutViewer(), newStderrViewer()},
+		[]tea.Model{newBasicPrompt(s), newTerminal(), newStderrViewer()},
 	)
 	defer model.Cancel()
 

@@ -20,6 +20,7 @@ func widgets(m *model) map[string]func() tea.Cmd {
 		"SimplePrompt": func() tea.Cmd { return m.AddChild(newBasicPrompt(m.shells[m.shellFocus])) },
 		"StdoutLog":    func() tea.Cmd { return m.AddChild(newStdoutViewer()) },
 		"ErrorLog":     func() tea.Cmd { return m.AddChild(newStderrViewer()) },
+		"Terminal":     func() tea.Cmd { return m.AddChild(newTerminal()) },
 	}
 }
 
@@ -176,7 +177,7 @@ func (m *model) RemoveChild(w *Widget) tea.Cmd {
 			// Go to previous widget
 			if m.widgetFocus == w {
 				if len(m.widgets) > 0 {
-					m.widgetFocus = m.widgets[max(i-1, 0)]
+					m.updateFocus(max(i-1, 0))
 				} else {
 					// In case there is no widget left
 					m.widgetFocus = nil

@@ -492,15 +492,17 @@ func (n *Node) Render() *lipgloss.Layer {
 		content = n.model.View().Content
 	}
 
-	box := lipgloss.NewStyle().
-		Width(n.rectangle.width).
-		MaxWidth(n.rectangle.width).
-		Height(n.rectangle.height).
-		MaxHeight(n.rectangle.height).
-		Render(content)
+	// seems unnecessary! :)
+	// might be required by individual widgets?!
+	//box := lipgloss.NewStyle().
+	//	Width(n.rectangle.width).
+	//	MaxWidth(n.rectangle.width).
+	//	Height(n.rectangle.height).
+	//	MaxHeight(n.rectangle.height).
+	//	Render(content)
 
 	var l *lipgloss.Layer
-	l = lipgloss.NewLayer(box).X(n.rectangle.x).Y(n.rectangle.y).Z(5)
+	l = lipgloss.NewLayer(content).X(n.rectangle.x).Y(n.rectangle.y).Z(5)
 	return l
 }
 
