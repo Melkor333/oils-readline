@@ -4,7 +4,6 @@ import (
 	"io"
 	"os"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/chalk-ai/bubbline/editline"
 	"github.com/creack/pty"
 )
@@ -23,29 +22,6 @@ type CommandMsg struct{ Cmd Command }
 type CommandDoneMsg struct{ Cmd Command }
 type StdoutMsg struct{ Cmd Command }
 type StderrMsg struct{ Cmd Command }
-
-type RequestHistoryEntryMsg struct {
-	Index int
-	Id    uint64
-}
-
-// TODO: Uncomment once it's not in the main module anymore
-//var _ TaggedMsg = RequestHistoryEntryMsg{}
-//var _ TargetedMsg = HistoryEntryMsg{}
-
-func (msg RequestHistoryEntryMsg) Tag(id uint64) tea.Msg {
-	msg.Id = id
-	return msg
-}
-
-type HistoryEntryMsg struct {
-	Cmd   Command
-	Index int
-	Total int
-	Id    uint64
-}
-
-func (msg HistoryEntryMsg) TargetWidget() uint64 { return msg.Id }
 
 type Shell interface {
 	//StdIO(*os.File, *os.File, *os.File) error

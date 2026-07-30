@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/Melkor333/oils-readline/history"
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/stretchr/testify/assert"
 )
@@ -347,7 +348,7 @@ func TestTerminalHistoryNavigation(t *testing.T) {
 
 	// Simulate receiving a history entry response.
 	prevCmd := newFakeCmd("previous cmd", "previous output\n")
-	h = updateTerminal(t, h, shell.HistoryEntryMsg{
+	h = updateTerminal(t, h, history.HistoryEntryMsg{
 		Cmd:   prevCmd,
 		Index: 1,
 		Total: 10,

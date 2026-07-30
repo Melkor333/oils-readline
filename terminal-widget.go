@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 
+	"github.com/Melkor333/oils-readline/history"
 	"github.com/Melkor333/oils-readline/shell"
 )
 
@@ -50,7 +51,7 @@ func (h *Terminal) IsInteractive() bool {
 
 func (h *Terminal) requestHistoryEntry(index int) tea.Cmd {
 	return func() tea.Msg {
-		return shell.RequestHistoryEntryMsg{Index: index}
+		return history.RequestHistoryEntryMsg{Index: index}
 	}
 }
 
@@ -176,7 +177,7 @@ func (h *Terminal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.updateContent()
 		return h, ReleaseCapture()
 
-	case shell.HistoryEntryMsg:
+	case history.HistoryEntryMsg:
 		log.Printf("New Command with index %v: %v", msg.Index, msg)
 		if h.targetIndex > msg.Total {
 			h.targetIndex = msg.Total

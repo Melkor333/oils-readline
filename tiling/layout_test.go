@@ -53,9 +53,9 @@ func TestPosition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			n := newNode(nil, tt.f)
 			for _, c := range tt.n {
-				n.AddChild(M{c})
+				n.addChild(M{c})
 			}
-			n.Position(tt.rect)
+			n.position(tt.rect)
 			for c, _child := range n.children {
 				child := _child.rectangle
 				assert.Equal(t, tt.out[c].x, child.x, "x needs to match")

@@ -11,6 +11,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/muesli/reflow/wrap"
 
+	"github.com/Melkor333/oils-readline/history"
 	"github.com/Melkor333/oils-readline/shell"
 )
 
@@ -70,7 +71,7 @@ func (h *StdoutViewer) IsInteractive() bool {
 
 func (h *StdoutViewer) requestHistoryEntry(index int) tea.Cmd {
 	return func() tea.Msg {
-		return shell.RequestHistoryEntryMsg{Index: index}
+		return history.RequestHistoryEntryMsg{Index: index}
 	}
 }
 
@@ -196,7 +197,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, ReleaseCapture()
 
-	case shell.HistoryEntryMsg:
+	case history.HistoryEntryMsg:
 		log.Printf("New Command with index %v: %v", msg.Index, msg)
 		if h.targetIndex > msg.Total {
 			h.targetIndex = msg.Total

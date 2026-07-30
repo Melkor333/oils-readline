@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/Melkor333/oils-readline/tiling"
+	"github.com/Melkor333/oils-readline/widget"
 	"github.com/chalk-ai/bubbline/editline"
 	"github.com/charmbracelet/x/exp/teatest/v2"
 	"github.com/creack/pty"
@@ -149,9 +150,9 @@ func TestChildSelfRemove(t *testing.T) {
 }
 
 func TestWrapChildCmd(t *testing.T) {
-	w := &Widget{}
+	w := &widget.Widget{}
 	removeCmd := func() tea.Msg { return RemoveSelfMsg{} }
-	wrapped := wrapChildCmd(removeCmd, w)
+	wrapped := widget.WrapChildCmd(removeCmd, w)
 	msg := wrapped()
 	rcm, ok := msg.(RemoveSelfMsg)
 	if !ok {
@@ -161,15 +162,15 @@ func TestWrapChildCmd(t *testing.T) {
 		t.Errorf("expected same Widget, got %d", rcm.w)
 	}
 
-	ww := &Widget{}
+	ww := &widget.Widget{}
 	quitCmd := func() tea.Msg { return tea.QuitMsg{} }
-	wrapped2 := wrapChildCmd(quitCmd, ww)
+	wrapped2 := widget.WrapChildCmd(quitCmd, ww)
 	msg2 := wrapped2()
 	if _, ok := msg2.(tea.QuitMsg); !ok {
 		t.Errorf("expected tea.QuitMsg to pass through, got %T", msg2)
 	}
 
-	if wrapChildCmd(nil, w) != nil {
+	if widget.WrapChildCmd(nil, w) != nil {
 		t.Errorf("expected nil for nil cmd")
 	}
 }

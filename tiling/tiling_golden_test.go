@@ -30,8 +30,8 @@ func renderLayer(l *lipgloss.Layer) string {
 func TestSingleChild(t *testing.T) {
 	hor, _ := New().Size(80, 24).Split(SplitHorizontal).Children(M{"SINGLE"})
 	vert, _ := New().Size(80, 24).Split(SplitVertical).Children(M{"SINGLE"})
-	horStr := renderLayer(hor.Layer())
-	vertStr := renderLayer(vert.Layer())
+	horStr := renderLayer(hor.RenderLayer())
+	vertStr := renderLayer(vert.RenderLayer())
 	golden.RequireEqual(t, []byte(horStr))
 
 	// Horizontal and Vertical should be equal with a single child
@@ -41,7 +41,7 @@ func TestSingleChild(t *testing.T) {
 
 func TestLayoutEmpty(t *testing.T) {
 	l := New().Size(80, 10)
-	result := renderLayer(l.Layer())
+	result := renderLayer(l.RenderLayer())
 	assert.Equal(t, "\n\n\n\n\n\n\n\n\n", result, "should only be newlines.")
 }
 
@@ -132,11 +132,11 @@ func TestGoldenRender(t *testing.T) {
 	for _, tt := range tests {
 		tt.layout.Children(tt.children...)
 		t.Run(tt.name+"_horizontal", func(t *testing.T) {
-			result := renderLayer(tt.layout.Split(SplitHorizontalWithMain).Layer())
+			result := renderLayer(tt.layout.Split(SplitHorizontalWithMain).RenderLayer())
 			golden.RequireEqual(t, []byte(result))
 		})
 		t.Run(tt.name+"_vertical", func(t *testing.T) {
-			result := renderLayer(tt.layout.Split(SplitVerticalWithMain).Layer())
+			result := renderLayer(tt.layout.Split(SplitVerticalWithMain).RenderLayer())
 			golden.RequireEqual(t, []byte(result))
 		})
 	}
