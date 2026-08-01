@@ -64,7 +64,7 @@ func newBlock(label, color string) *blockModel {
 	return &blockModel{label: label, color: color}
 }
 
-func (m *blockModel) Init() tea.Cmd { return nil }
+func (m *blockModel) Init() tea.Cmd { return tiling.DisplaySelf() }
 
 func (m *blockModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -101,7 +101,7 @@ func newRemovable(label string) *removableModel {
 	return &removableModel{label: label}
 }
 
-func (m *removableModel) Init() tea.Cmd { return nil }
+func (m *removableModel) Init() tea.Cmd { return tiling.DisplaySelf() }
 
 func (m *removableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -283,7 +283,9 @@ func newCaptureMock() *captureMockModel {
 	return &captureMockModel{}
 }
 
-func (m *captureMockModel) Init() tea.Cmd { return RequestCapture() }
+func (m *captureMockModel) Init() tea.Cmd {
+	return tea.Batch(tiling.DisplaySelf(), RequestCapture())
+}
 
 func (m *captureMockModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {

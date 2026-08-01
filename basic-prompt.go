@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/Melkor333/oils-readline/shell"
+	"github.com/Melkor333/oils-readline/tiling"
 )
 
 var (
@@ -42,7 +43,7 @@ func newBasicPrompt(s shell.Shell) *basicPrompt {
 }
 
 func (bp *basicPrompt) Init() tea.Cmd {
-	return nil
+	return tiling.DisplaySelf()
 }
 
 func (bp *basicPrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

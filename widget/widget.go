@@ -36,9 +36,15 @@ func WrapChildCmd(cmd tea.Cmd, w *Widget) tea.Cmd {
 	}
 	return func() tea.Msg {
 		msg := cmd()
-		if t, ok := msg.(TaggedMsg); ok {
+		switch m := msg.(type) {
+		case tea.BatchMsg:
+			for i, c := range m {
+				m[i] = WrapChildCmd(c, w)
+			}
+			return m
+		case TaggedMsg:
 			log.Printf("Tagged message for %v!", w)
-			msg = t.Tag(w)
+			return m.Tag(w)
 		}
 		return msg
 	}

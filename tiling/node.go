@@ -49,6 +49,15 @@ func (n *node) addChild(model tea.Model) (*node, tea.Cmd) {
 	return child, cmd
 }
 
+func (n *node) contains(m tea.Model) bool {
+	for _, c := range n.children {
+		if c.model == m || c.contains(m) {
+			return true
+		}
+	}
+	return false
+}
+
 func (n *node) removeChild(m tea.Model) bool {
 	for i, c := range n.children {
 		if c.model == m {

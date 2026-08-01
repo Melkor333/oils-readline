@@ -19,10 +19,10 @@ import (
 // Model.
 func widgets(m *model) map[string]func() tea.Cmd {
 	return map[string]func() tea.Cmd{
-		"SimplePrompt": func() tea.Cmd { return m.AddChild(newBasicPrompt(m.shells[m.shellFocus])) },
-		"StdoutLog":    func() tea.Cmd { return m.AddChild(newStdoutViewer()) },
-		"ErrorLog":     func() tea.Cmd { return m.AddChild(newStderrViewer()) },
-		"Terminal":     func() tea.Cmd { return m.AddChild(newTerminal()) },
+		"SimplePrompt": func() tea.Cmd { return AddWidget(newBasicPrompt(m.shells[m.shellFocus])) },
+		"StdoutLog":    func() tea.Cmd { return AddWidget(newStdoutViewer()) },
+		"ErrorLog":     func() tea.Cmd { return AddWidget(newStderrViewer()) },
+		"Terminal":     func() tea.Cmd { return AddWidget(newTerminal()) },
 	}
 }
 
@@ -91,7 +91,20 @@ func NewModel(shells []shell.Shell, children []tea.Model) *model {
 	return m
 }
 
-// AddChild appends a child model to the end of the layout.
+// addWidget appends a child model to the widget list (but not the layout).
+// It returns the child's Init command.
+func (m *model) addWidget(w *widget.Widget) tea.Cmd {
+	m.widgets = append(m.widgets, w)
+
+	// Make the first added widget focussed
+	if len(m.widgets) == 1 {
+		m.widgetFocus = w
+	}
+	_, cmd := w.Update(tea.BlurMsg{})
+	return tea.Batch(w.Init(), cmd)
+}
+
+// AddChild appends a child model to the end of the widget list and the layout.
 // It returns the child's Init command.
 func (m *model) AddChild(child tea.Model) tea.Cmd {
 	return m.AddChildAt(len(m.widgets), child)
@@ -243,8 +256,27 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	// globalsKeys.Dispatch
 
+	// TODO: This means as long as a targetedCmd runs, the widget will still exist, even when deleted from the view?!
+	// Maybe we need a way to ensure a deleted widget is not being updated anymore? :thinking:
+	if tmsg, ok := msg.(TargetedMsg); ok {
+		_, cmd := tmsg.TargetWidget().Update(msg)
+		return m, cmd
+	}
+
 	msg, cmd = m.history.Dispatch(msg)
 	if msg == nil {
+		return m, cmd
+	}
+
+	msg, cmd2 := m.layout.Dispatch(msg)
+	cmd = tea.Batch(cmd, cmd2)
+	if msg == nil {
+		return m, cmd
+	}
+
+	// in case history/layout changed thr msg.
+	if tmsg, ok := msg.(TargetedMsg); ok {
+		_, cmd := tmsg.TargetWidget().Update(msg)
 		return m, cmd
 	}
 
@@ -331,6 +363,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateFocus(0)
 	case RequestFocusMainMsg:
 		return m.updateFocus(len(m.widgets))
+
+	case addWidgetMsg:
+		w := &widget.Widget{Model: msg.Model}
+		return m, m.addWidget(w)
+
 	case removeWidgetMsg:
 		m.RemoveChild(msg.w)
 		return m, nil
@@ -370,13 +407,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.EnvMsg:
 		log.Print("Got env from tea process")
-	}
-
-	// TODO: This means as long as a targetedCmd runs, the widget will still exist, even when deleted from the view?!
-	// Maybe we need a way to ensure a deleted widget is not being updated anymore? :thinking:
-	if tmsg, ok := msg.(TargetedMsg); ok {
-		_, cmd := tmsg.TargetWidget().Update(msg)
-		return m, cmd
 	}
 
 	var cmds []tea.Cmd

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Melkor333/oils-readline/history"
 	"github.com/Melkor333/oils-readline/shell"
+	"github.com/Melkor333/oils-readline/tiling"
 )
 
 type StdoutViewer struct {
@@ -55,7 +56,7 @@ func newStderrViewer() *StdoutViewer {
 }
 
 func (h *StdoutViewer) Init() tea.Cmd {
-	return nil
+	return tiling.DisplaySelf()
 }
 
 func (h *StdoutViewer) WriteStdin(b []byte) (int, error) {

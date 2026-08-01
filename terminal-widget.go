@@ -12,6 +12,7 @@ import (
 
 	"github.com/Melkor333/oils-readline/history"
 	"github.com/Melkor333/oils-readline/shell"
+	"github.com/Melkor333/oils-readline/tiling"
 )
 
 type Terminal struct {
@@ -35,7 +36,7 @@ func newTerminal() *Terminal {
 }
 
 func (h *Terminal) Init() tea.Cmd {
-	return nil
+	return tiling.DisplaySelf()
 }
 
 func (h *Terminal) WriteStdin(b []byte) (int, error) {

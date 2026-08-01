@@ -9,6 +9,17 @@ type TargetedMsg interface {
 	TargetWidget() *widget.Widget
 }
 
+// AddWidgetMsg is a message that adds a widget to the model's widget list
+// (but not the layout). The widget will be sent a DisplaySelfMsg to add it
+// to the layout.
+type addWidgetMsg struct {
+	Model tea.Model
+}
+
+func AddWidget(m tea.Model) tea.Cmd {
+	return func() tea.Msg { return addWidgetMsg{m} }
+}
+
 type RequestFocusPrevMsg struct{}
 type RequestFocusNextMsg struct{}
 type RequestFocusMainMsg struct{} // Go to main
