@@ -42,7 +42,7 @@ func (sw *SelectorWidget) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if sw.cursor < len(sw.choices)-1 {
 				sw.cursor++
 			}
-		case "enter", " ":
+		case "enter", "space":
 			return sw, tea.Batch(
 				sw.funcs[sw.cursor](),
 				func() tea.Msg { return CloseSelectorMsg{} },

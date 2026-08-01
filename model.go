@@ -256,6 +256,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	// globalsKeys.Dispatch
 
+	// Selector mode: intercept all keypresses before dispatch pipeline
+	if m.selecting {
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			newSel, cmd := m.selector.Update(msg)
+			if c, ok := newSel.(*SelectorWidget); ok {
+				m.selector = c
+			}
+			return m, cmd
+		}
+	}
+
 	// TODO: This means as long as a targetedCmd runs, the widget will still exist, even when deleted from the view?!
 	// Maybe we need a way to ensure a deleted widget is not being updated anymore? :thinking:
 	if tmsg, ok := msg.(TargetedMsg); ok {
@@ -291,14 +303,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
-		if m.selecting {
-			newSel, cmd := m.selector.Update(msg)
-			if c, ok := newSel.(*SelectorWidget); ok {
-				m.selector = c
-			}
-			return m, cmd
-		}
-
 		// Capture mode: all keypresses go to the capturing widget
 		if m.captureWidget != nil {
 			log.Printf("Send capture to widget")
