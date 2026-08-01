@@ -155,6 +155,7 @@ func (m *model) RemoveChild(w *widget.Widget) tea.Cmd {
 	}
 	for i, ww := range m.widgets {
 		if w == ww {
+			m.widgets = append(m.widgets[:i], m.widgets[i+1:]...)
 			// Go to previous widget
 			if m.widgetFocus == w {
 				if len(m.widgets) > 0 {
@@ -164,7 +165,6 @@ func (m *model) RemoveChild(w *widget.Widget) tea.Cmd {
 					m.widgetFocus = nil
 				}
 			}
-			m.widgets = append(m.widgets[:i], m.widgets[i+1:]...)
 		}
 	}
 	m.layout.RemoveChild(w)
