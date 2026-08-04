@@ -28,8 +28,8 @@ func renderLayer(l *lipgloss.Layer) string {
 }
 
 func TestSingleChild(t *testing.T) {
-	hor, _ := New().Size(80, 24).Split(SplitHorizontal).Children(M{"SINGLE"})
-	vert, _ := New().Size(80, 24).Split(SplitVertical).Children(M{"SINGLE"})
+	hor, _ := New().Size(80, 24).Split(SplitHorizontal).AddChildren(M{"SINGLE"})
+	vert, _ := New().Size(80, 24).Split(SplitVertical).AddChildren(M{"SINGLE"})
 	horStr := renderLayer(hor.RenderLayer())
 	vertStr := renderLayer(vert.RenderLayer())
 	golden.RequireEqual(t, []byte(horStr))
@@ -130,7 +130,7 @@ func TestGoldenRender(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt.layout.Children(tt.children...)
+		tt.layout.AddChildren(tt.children...)
 		t.Run(tt.name+"_horizontal", func(t *testing.T) {
 			result := renderLayer(tt.layout.Split(SplitHorizontalWithMain).RenderLayer())
 			golden.RequireEqual(t, []byte(result))

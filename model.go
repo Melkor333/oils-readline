@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 	"os"
-	"slices"
+	"reflect"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -47,8 +47,7 @@ type model struct {
 	shellFocus  int
 	nextShellID uint64
 
-	widgets     []*widget.Widget
-	widgetFocus *widget.Widget
+	widgets []*widget.Widget
 
 	history *history.History
 
@@ -72,7 +71,6 @@ func NewModel(shells []shell.Shell, children []tea.Model) *model {
 	for i, c := range children {
 		w := &widget.Widget{c}
 		entries[i] = w
-		layout.Children(w)
 	}
 	for i, shell := range shells {
 		s[i] = trackedShell{shell, uint64(i)}
@@ -85,9 +83,6 @@ func NewModel(shells []shell.Shell, children []tea.Model) *model {
 		captureWidget: nil,
 		history:       &history.History{},
 	}
-	if len(children) > 0 {
-		m.widgetFocus = m.widgets[0]
-	}
 	return m
 }
 
@@ -95,32 +90,17 @@ func NewModel(shells []shell.Shell, children []tea.Model) *model {
 // It returns the child's Init command.
 func (m *model) addWidget(w *widget.Widget) tea.Cmd {
 	m.widgets = append(m.widgets, w)
-
-	// Make the first added widget focussed
-	if len(m.widgets) == 1 {
-		m.widgetFocus = w
-	}
-	_, cmd := w.Update(tea.BlurMsg{})
-	return tea.Batch(w.Init(), cmd)
+	// TODO: Should the model itself care about the init, or is init dependant of it being added to the model?
+	return w.Init()
 }
 
 // AddChild appends a child model to the end of the widget list and the layout.
 // It returns the child's Init command.
 func (m *model) AddChild(child tea.Model) tea.Cmd {
-	return m.AddChildAt(len(m.widgets), child)
-}
-
-func (m *model) AddChildAt(pos int, child tea.Model) tea.Cmd {
 	w := &widget.Widget{child}
-	m.widgets = slices.Insert(m.widgets, pos, w)
+	m.widgets = append(m.widgets, w)
 
-	// Make the first added widget focussed
-	if len(m.widgets) == 1 {
-		m.widgetFocus = w
-	}
-	m.layout.AddChildAt(pos, w)
-	_, cmd := w.Update(tea.BlurMsg{})
-	return tea.Batch(m.recalculateSizes(), w.Init(), cmd)
+	return nil
 }
 
 type Cancellable interface {
@@ -156,33 +136,12 @@ func (m *model) RemoveChild(w *widget.Widget) tea.Cmd {
 	for i, ww := range m.widgets {
 		if w == ww {
 			m.widgets = append(m.widgets[:i], m.widgets[i+1:]...)
-			// Go to previous widget
-			if m.widgetFocus == w {
-				if len(m.widgets) > 0 {
-					m.updateFocus(max(i-1, 0))
-				} else {
-					// In case there is no widget left
-					m.widgetFocus = nil
-				}
-			}
 		}
 	}
-	m.layout.RemoveChild(w)
-	return m.recalculateSizes()
-}
-
-func (m *model) updateFocus(i int) (tea.Model, tea.Cmd) {
-	old := m.widgetFocus
-	if i >= len(m.widgets) {
-		m.widgetFocus = m.widgets[0]
-	} else if i < 0 {
-		m.widgetFocus = m.widgets[len(m.widgets)-1]
-	} else {
-		m.widgetFocus = m.widgets[i]
-	}
-	_, focusCmd := m.widgetFocus.Update(tea.FocusMsg{})
-	_, blurCmd := old.Update(tea.BlurMsg{})
-	return m, tea.Sequence(blurCmd, focusCmd)
+	// TODO: Should it be removed from the layout? Or are these two separate things?
+	// A widget should probably remove itself when it's hidden
+	// (TODO: being hidden/displayed should spawn a message to the widget? And then it removes itself... Do we want to make it that hard for widgets?)
+	return tea.Batch(m.layout.RemoveChild(w), m.recalculateSizes())
 }
 
 func (m *model) Init() tea.Cmd {
@@ -197,13 +156,6 @@ func (m *model) Init() tea.Cmd {
 	for r, w := range m.widgets {
 		log.Printf("Initiating %v %v", r, w)
 		cmds = append(cmds, w.Init())
-		if w == m.widgetFocus {
-			_, cmd := w.Update(tea.FocusMsg{})
-			cmds = append(cmds, cmd)
-		} else {
-			_, cmd := w.Update(tea.BlurMsg{})
-			cmds = append(cmds, cmd)
-		}
 	}
 	return tea.Batch(cmds...)
 }
@@ -232,8 +184,6 @@ func (m *model) View() tea.View {
 		}
 	}
 
-	// TODO
-	//m.layout.Focus(m.widgetFocus)
 	base := m.layout.RenderLayer()
 
 	if m.selecting && m.selector != nil {
@@ -251,12 +201,9 @@ func (m *model) View() tea.View {
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// First switch: transform messages inline by updating msg, so the new
-	// message reaches children in the same loop iteration (no extra MVU roundtrip).
 	var cmd tea.Cmd
-	// globalsKeys.Dispatch
+	log.Print(reflect.TypeOf(msg), msg)
 
-	// Selector mode: intercept all keypresses before dispatch pipeline
 	if m.selecting {
 		switch msg := msg.(type) {
 		case tea.KeyPressMsg:
@@ -264,6 +211,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if c, ok := newSel.(*SelectorWidget); ok {
 				m.selector = c
 			}
+			return m, cmd
+		}
+	}
+
+	// Capture mode: all keypresses go to the capturing widget, bypass dispatch
+	if m.captureWidget != nil {
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			log.Printf("Send capture to widget")
+			_, cmd := m.captureWidget.Update(msg)
 			return m, cmd
 		}
 	}
@@ -276,12 +233,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	msg, cmd = m.history.Dispatch(msg)
-	if msg == nil {
-		return m, cmd
-	}
-
-	msg, cmd2 := m.layout.Dispatch(msg)
-	cmd = tea.Batch(cmd, cmd2)
 	if msg == nil {
 		return m, cmd
 	}
@@ -303,70 +254,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
-		// Capture mode: all keypresses go to the capturing widget
-		if m.captureWidget != nil {
-			log.Printf("Send capture to widget")
-			_, cmd := m.captureWidget.Update(msg)
-			return m, cmd
-		}
-
 		switch msg.String() {
-		case "ctrl+j":
-			for i, w := range m.widgets {
-				if w == m.widgetFocus {
-					return m.updateFocus(i + 1)
-				}
-			}
-			return m.updateFocus(0)
-		case "ctrl+k":
-			for i, w := range m.widgets {
-				if w == m.widgetFocus {
-					return m.updateFocus(i - 1)
-				}
-			}
-			return m.updateFocus(0)
 		case "ctrl+space":
 			m.selecting = true
 			m.selector = newWidgetSelector(widgets(m))
 			m.selector.width = m.Width
 			m.selector.height = m.Height
 			return m, m.selector.Init()
-		case "ctrl+c":
-			if len(m.widgets) > 0 {
-				log.Printf("Removing child %v", m.widgetFocus)
-				return m, m.RemoveChild(m.widgetFocus)
-			}
-			return m, func() tea.Msg { return tea.Quit() }
 		}
-
-		// Keypresses only go to the currently focussed widget
-		if len(m.widgets) > 0 {
-			_, cmd := m.widgetFocus.Update(msg)
-			return m, cmd
-		}
-		return m, nil
 
 	case CloseSelectorMsg:
 		m.selecting = false
 		m.selector = nil
 		return m, nil
-
-	case RequestFocusNextMsg:
-		for i, w := range m.widgets {
-			if w == m.widgetFocus {
-				return m.updateFocus(i + 1)
-			}
-		}
-		return m.updateFocus(0)
-	case RequestFocusPrevMsg:
-		for i, w := range m.widgets {
-			if w == m.widgetFocus {
-				return m.updateFocus(i - 1)
-			}
-		}
-		return m.updateFocus(0)
-	case RequestFocusMainMsg:
-		return m.updateFocus(len(m.widgets))
 
 	case addWidgetMsg:
 		w := &widget.Widget{Model: msg.Model}
@@ -411,6 +311,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.EnvMsg:
 		log.Print("Got env from tea process")
+	}
+
+	// TODO: This means as long as a targetedCmd runs, the widget will still exist, even when deleted from the view?!
+	// Maybe we need a way to ensure a deleted widget is not being updated anymore? :thinking:
+	if tmsg, ok := msg.(TargetedMsg); ok {
+		_, cmd := tmsg.TargetWidget().Update(msg)
+		return m, cmd
+	}
+
+	msg, cmd2 := m.layout.Dispatch(msg)
+	cmd = tea.Batch(cmd, cmd2)
+	if msg == nil {
+		return m, cmd
 	}
 
 	var cmds []tea.Cmd

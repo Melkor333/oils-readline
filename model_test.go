@@ -241,9 +241,8 @@ func TestPropertyAddRemoveChildren(t *testing.T) {
 						label = labels[rng.Intn(len(labels))]
 					}
 					used[label] = true
-					pos := rng.Intn(len(m.widgets) + 1)
-					m.AddChildAt(pos, newBlock(label, "5"))
-					expected = insertStringAt(expected, pos, label)
+					m.AddChild(newBlock(label, "5"))
+					expected = append(expected, label)
 				} else if canRemove {
 					pos := rng.Intn(len(m.widgets))
 					delete(used, expected[pos])
@@ -347,13 +346,6 @@ func TestKeyCapture(t *testing.T) {
 		}
 	}
 	t.Fatal("captureMockModel not found in widgets")
-}
-
-func insertStringAt(s []string, i int, v string) []string {
-	s = append(s, "")
-	copy(s[i+1:], s[i:])
-	s[i] = v
-	return s
 }
 
 func TestTeaAddAndRemoveBlock(t *testing.T) {

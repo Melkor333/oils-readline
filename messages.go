@@ -5,24 +5,21 @@ import (
 	"github.com/Melkor333/oils-readline/widget"
 )
 
+// A Targeted Message is an interface used by messages that should be sent to a specific widget
+// When a message matches the interface, it will be sent to the widget it contains
+// TODO: Should this take a generic `tea.Model` or is Widget really necessary?
 type TargetedMsg interface {
 	TargetWidget() *widget.Widget
 }
 
-// AddWidgetMsg is a message that adds a widget to the model's widget list
-// (but not the layout). The widget will be sent a DisplaySelfMsg to add it
-// to the layout.
 type addWidgetMsg struct {
 	Model tea.Model
 }
 
+// AddWidget is a func that returns a command to add a new widget to the Message Loop
 func AddWidget(m tea.Model) tea.Cmd {
 	return func() tea.Msg { return addWidgetMsg{m} }
 }
-
-type RequestFocusPrevMsg struct{}
-type RequestFocusNextMsg struct{}
-type RequestFocusMainMsg struct{} // Go to main
 
 // Sent by a widget to request all keyboard inputs
 func RequestCapture() tea.Cmd {

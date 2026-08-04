@@ -17,6 +17,15 @@ type node struct {
 	model  tea.Model
 }
 
+func (n *node) Update(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	if n.model != nil {
+		n.model, cmd = n.model.Update(msg)
+		return cmd
+	}
+	return nil
+}
+
 func newNode(m tea.Model, positionFunc SplitFunc) *node {
 	node := &node{
 		positionFunc: positionFunc,
@@ -47,15 +56,6 @@ func (n *node) addChild(model tea.Model) (*node, tea.Cmd) {
 	n.children = append(n.children, child)
 	cmd := n.position(n.rectangle)
 	return child, cmd
-}
-
-func (n *node) contains(m tea.Model) bool {
-	for _, c := range n.children {
-		if c.model == m || c.contains(m) {
-			return true
-		}
-	}
-	return false
 }
 
 func (n *node) removeChild(m tea.Model) bool {

@@ -2,6 +2,7 @@ package tiling
 
 import (
 	"image/color"
+	"log"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -19,44 +20,52 @@ func (msg displaySelfMsg) Tag(w *widget.Widget) tea.Msg {
 	return msg
 }
 
-// DisplaySelf returns a command that requests the model be added to the layout.
+// DisplaySelf returns a command that requests the given model be made visible in the layout.
 func DisplaySelf() tea.Cmd {
 	return func() tea.Msg { return displaySelfMsg{} }
 }
 
-// HideSelf returns a command that requests the model be removed from the layout.
+// HideSelf returns a command that requests the given model be removed from the layout.
 func HideSelf() tea.Cmd {
 	return func() tea.Msg { return hideSelfMsg{} }
 }
 
-// hideSelfMsg is sent by a widget to remove itself from the layout while
-// keeping it in the widget list.
 type hideSelfMsg struct {
 	Model tea.Model
 }
 
+// TODO: Allow tea.Model and test for *wisdget.Widget in the widget library.
+// To make this independent from  the widget.
+// Users can then choose to use a wrapper + Tag or not.
 func (msg hideSelfMsg) Tag(w *widget.Widget) tea.Msg {
 	msg.Model = w
 	return msg
 }
 
 // To be used by widgets
+// TODO: Deal with them in the Flutter logic
 type ErrNotWideEnough error
 type ErrNotHighEnough error
+
+// Focus messages
+type RequestFocusPrevMsg struct{}
+type RequestFocusNextMsg struct{}
+type RequestFocusMainMsg struct{}
+
+// RemoveFocusedMsg is sent when the focused widget should be removed from the
+// layout. The model handles removal from the widget list.
+type RemoveFocusedMsg struct {
+	Model tea.Model
+}
 
 type Layout struct {
 	tree          *node
 	focussed      *node
 	Width, Height int
 
-	//splitMode   SplitMode
-	//focusIndex int
-
 	border        lipgloss.Border
 	activeColor   color.Color
 	inactiveColor color.Color
-
-	//children []string
 }
 
 func New() *Layout {
@@ -75,24 +84,22 @@ func (l *Layout) Size(w, h int) *Layout {
 	return l
 }
 
-func (l *Layout) RemoveChild(m tea.Model) {
+func (l *Layout) RemoveChild(m tea.Model) tea.Cmd {
+	wasFocused := l.focussed != nil && l.focussed.model == m
+
+	cmd := l.tree.Update(tea.BlurMsg{})
 	l.tree.removeChild(m)
 	l.tree.position(l.tree.rectangle)
-}
 
-// Display adds a model to the layout tree at the end of the child list.
-// It is idempotent — if the model is already in the tree, it does nothing.
-func (l *Layout) Display(m tea.Model) tea.Cmd {
-	if l.tree.contains(m) {
-		return nil
+	if wasFocused {
+		if len(l.tree.children) > 0 {
+			return tea.Sequence(cmd, l.focus(l.tree.children[0]))
+		} else {
+			l.focussed = nil
+		}
 	}
-	_, cmd := l.AddChildAt(l.Len(), m)
-	return cmd
-}
 
-// Hide removes a model from the layout tree.
-func (l *Layout) Hide(m tea.Model) {
-	l.RemoveChild(m)
+	return cmd
 }
 
 func (l *Layout) Split(split SplitFunc) *Layout {
@@ -102,24 +109,22 @@ func (l *Layout) Split(split SplitFunc) *Layout {
 	return l
 }
 
-func (l *Layout) Children(mm ...tea.Model) (*Layout, tea.Cmd) {
+func (l *Layout) AddChildren(mm ...tea.Model) (*Layout, tea.Cmd) {
 	var cmds []tea.Cmd
+	var node *node
 	for _, m := range mm {
 		var cmd tea.Cmd
-		_, cmd = l.tree.addChild(m)
+		node, cmd = l.tree.addChild(m)
 		cmds = append(cmds, cmd)
+		if l.focussed == nil {
+			l.focus(node)
+		} else {
+			if l.tree.model != nil {
+				cmds = append(cmds, l.tree.Update(tea.BlurMsg{}))
+			}
+		}
 	}
 	return l, tea.Batch(cmds...)
-}
-
-func (l *Layout) AddChildAt(pos int, m tea.Model) (*node, tea.Cmd) {
-	n := l.tree
-	child := newNode(m, n.positionFunc)
-	child.parent = n
-	child.setBorder(n.border)
-	n.children = append(n.children[:pos], append([]*node{child}, n.children[pos:]...)...)
-	cmd := n.position(n.rectangle)
-	return child, cmd
 }
 
 func (l *Layout) Len() int {
@@ -141,14 +146,129 @@ func (l *Layout) BorderStyle(s lipgloss.Border) *Layout {
 	return l
 }
 
-// Dispatch handles display/hide messages for the layout.
+// FocusFocusMsg is sent by a widget to request focus on a specific model.
+type RequestFocusMsg struct {
+	Model tea.Model
+}
+
+// focus sets the focused model in the layout.
+func (l *Layout) focus(n *node) tea.Cmd {
+	var cmds []tea.Cmd
+	if l.focussed != nil {
+		cmds = append(cmds, l.focussed.Update(tea.BlurMsg{}))
+	}
+
+	l.focussed = n
+
+	if l.focussed != nil {
+		cmds = append(cmds, l.focussed.Update(tea.FocusMsg{}))
+	}
+	return tea.Sequence(cmds...)
+}
+
+// focusNext focuses the next visible child.
+func (l *Layout) focusNext() tea.Cmd {
+	if len(l.tree.children) == 0 {
+		return nil
+	}
+	if l.focussed == nil {
+		return l.focus(l.tree.children[0])
+	}
+	for i, c := range l.tree.children {
+		if c == l.focussed {
+			return l.focus(l.tree.children[(i+1)%len(l.tree.children)])
+		}
+	}
+	return l.focus(l.tree.children[0])
+}
+
+// focusPrev focuses the previous visible child.
+func (l *Layout) focusPrev() tea.Cmd {
+	if len(l.tree.children) == 0 {
+		return nil
+	}
+	if l.focussed == nil {
+		return l.focus(l.tree.children[0])
+	}
+	for i, c := range l.tree.children {
+		if c == l.focussed {
+			return l.focus(l.tree.children[(i-1+len(l.tree.children))%len(l.tree.children)])
+		}
+	}
+	return l.focus(l.tree.children[0])
+}
+
+// focusLast focuses the last visible child.
+func (l *Layout) focusLast() tea.Cmd {
+	if len(l.tree.children) == 0 {
+		return l.focus(nil)
+	}
+	return l.focus(l.tree.children[len(l.tree.children)-1])
+}
+
+// Focused returns the currently focused model, or nil.
+func (l *Layout) Focused() tea.Model {
+	if l.focussed == nil {
+		return nil
+	}
+	return l.focussed.model
+}
+
+func (l *Layout) focusMsg() tea.Cmd {
+	if l.focussed == nil || l.focussed.model == nil {
+		return nil
+	}
+	cmd := l.focussed.Update(tea.FocusMsg{})
+	return cmd
+}
+
+func (l *Layout) blurMsg() tea.Cmd {
+	if l.focussed == nil || l.focussed.model == nil {
+		return nil
+	}
+	cmd := l.focussed.Update(tea.BlurMsg{})
+	return cmd
+}
+
 func (l *Layout) Dispatch(msg tea.Msg) (tea.Msg, tea.Cmd) {
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case displaySelfMsg:
-		return nil, l.Display(msg.Model)
+		_, cmd := l.AddChildren(msg.Model)
+		return nil, cmd
 	case hideSelfMsg:
-		l.Hide(msg.Model)
-		return nil, nil
+		cmd := l.RemoveChild(msg.Model)
+		return nil, cmd
+	case RequestFocusNextMsg:
+		return nil, l.focusNext()
+	case RequestFocusPrevMsg:
+		return nil, l.focusPrev()
+	case RequestFocusMainMsg:
+		return nil, l.focusLast()
+	case tea.FocusMsg:
+		return nil, l.focusMsg()
+	case tea.BlurMsg:
+		return nil, l.blurMsg()
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "ctrl+j":
+			return nil, l.focusNext()
+		case "ctrl+k":
+			return nil, l.focusPrev()
+		case "ctrl+c":
+			focused := l.Focused()
+			if focused != nil {
+				log.Print("Removing focussed Widget")
+				cmd := l.RemoveChild(focused)
+				return nil, cmd
+			}
+			log.Print("no widget left. Stopping")
+			return nil, tea.Quit
+		}
+		if l.focussed != nil {
+			l.focussed.model, cmd = l.focussed.model.Update(msg)
+			return nil, cmd
+		}
 	}
 	return msg, nil
 }
