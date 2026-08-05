@@ -69,7 +69,7 @@ func NewModel(shells []shell.Shell, children []tea.Model) *model {
 	s := make([]trackedShell, len(shells))
 	layout := tiling.New()
 	for i, c := range children {
-		w := &widget.Widget{c}
+		w := &widget.Widget{Model: c}
 		entries[i] = w
 	}
 	for i, shell := range shells {
@@ -146,18 +146,26 @@ func (m *model) RemoveChild(w *widget.Widget) tea.Cmd {
 
 func (m *model) Init() tea.Cmd {
 	var cmds []tea.Cmd
+	var shellCmds []tea.Cmd
+
 	for _, shell := range m.shells {
-		cmds = append(cmds,
+		shellCmds = append(shellCmds,
 			func() tea.Msg {
 				shell.Wait()
 				return removeShellMsg{shell}
 			})
 	}
+
 	for r, w := range m.widgets {
 		log.Printf("Initiating %v %v", r, w)
 		cmds = append(cmds, w.Init())
 	}
-	return tea.Batch(cmds...)
+	cmds = append(cmds,
+		func() tea.Msg { log.Print("request focus"); return tiling.RequestFocusMainMsg{} },
+	)
+
+	// Focus the first widget after init
+	return tea.Batch(tea.Batch(shellCmds...), tea.Sequence(cmds...))
 }
 
 func (m *model) recalculateSizes() tea.Cmd {

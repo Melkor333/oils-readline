@@ -43,7 +43,7 @@ func newBasicPrompt(s shell.Shell) *basicPrompt {
 }
 
 func (bp *basicPrompt) Init() tea.Cmd {
-	return tiling.DisplaySelf()
+	return tiling.DisplaySelf(10)
 }
 
 func (bp *basicPrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

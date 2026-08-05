@@ -53,7 +53,7 @@ func TestPosition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			n := newNode(nil, tt.f)
 			for _, c := range tt.n {
-				n.addChild(M{c})
+				n.addChild(M{c}, 0)
 			}
 			n.position(tt.rect)
 			for c, _child := range n.children {

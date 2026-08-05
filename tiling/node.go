@@ -1,6 +1,8 @@
 package tiling
 
 import (
+	"slices"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -13,8 +15,9 @@ type node struct {
 	positionFunc SplitFunc
 	rectangle    rec
 	//content      string
-	border lipgloss.Border
-	model  tea.Model
+	border   lipgloss.Border
+	model    tea.Model
+	priority int
 }
 
 func (n *node) Update(msg tea.Msg) tea.Cmd {
@@ -49,11 +52,12 @@ func (n *node) split(split SplitFunc) {
 }
 
 // TODO: make this a separate func. to e.g. hard limit to 2 elems
-func (n *node) addChild(model tea.Model) (*node, tea.Cmd) {
+func (n *node) addChild(model tea.Model, priority int) (*node, tea.Cmd) {
 	child := newNode(model, n.positionFunc)
 	child.parent = n
 	child.setBorder(n.border)
-	n.children = append(n.children, child)
+	child.priority = priority
+	n.insertSorted(child)
 	cmd := n.position(n.rectangle)
 	return child, cmd
 }
@@ -69,6 +73,24 @@ func (n *node) removeChild(m tea.Model) bool {
 		}
 	}
 	return false
+}
+
+func (n *node) contains(m tea.Model) bool {
+	for _, c := range n.children {
+		if c.model == m || c.contains(m) {
+			return true
+		}
+	}
+	return false
+}
+
+func (n *node) insertSorted(child *node) {
+	prio := child.priority
+	i := 0
+	for i < len(n.children) && n.children[i].priority <= prio {
+		i++
+	}
+	n.children = slices.Insert(n.children, i, child)
 }
 
 func (n *node) SetSize(width, height int) {

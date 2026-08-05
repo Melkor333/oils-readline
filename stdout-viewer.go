@@ -56,7 +56,7 @@ func newStderrViewer() *StdoutViewer {
 }
 
 func (h *StdoutViewer) Init() tea.Cmd {
-	return tiling.DisplaySelf()
+	return tiling.DisplaySelf(100)
 }
 
 func (h *StdoutViewer) WriteStdin(b []byte) (int, error) {

@@ -12,7 +12,8 @@ import (
 // displaySelfMsg is sent by a widget (or on its behalf) to add itself to the
 // layout.
 type displaySelfMsg struct {
-	Model tea.Model
+	Model    tea.Model
+	Priority int
 }
 
 func (msg displaySelfMsg) Tag(w *widget.Widget) tea.Msg {
@@ -21,8 +22,9 @@ func (msg displaySelfMsg) Tag(w *widget.Widget) tea.Msg {
 }
 
 // DisplaySelf returns a command that requests the given model be made visible in the layout.
-func DisplaySelf() tea.Cmd {
-	return func() tea.Msg { return displaySelfMsg{} }
+// priority determines the order (lower = first).
+func DisplaySelf(priority int) tea.Cmd {
+	return func() tea.Msg { return displaySelfMsg{Model: nil, Priority: priority} }
 }
 
 // HideSelf returns a command that requests the given model be removed from the layout.
@@ -109,19 +111,17 @@ func (l *Layout) Split(split SplitFunc) *Layout {
 	return l
 }
 
-func (l *Layout) AddChildren(mm ...tea.Model) (*Layout, tea.Cmd) {
+func (l *Layout) AddChildren(priority int, mm ...tea.Model) (*Layout, tea.Cmd) {
 	var cmds []tea.Cmd
 	var node *node
 	for _, m := range mm {
 		var cmd tea.Cmd
-		node, cmd = l.tree.addChild(m)
+		node, cmd = l.tree.addChild(m, priority)
 		cmds = append(cmds, cmd)
 		if l.focussed == nil {
 			l.focus(node)
 		} else {
-			if l.tree.model != nil {
-				cmds = append(cmds, l.tree.Update(tea.BlurMsg{}))
-			}
+			cmds = append(cmds, node.Update(tea.BlurMsg{}))
 		}
 	}
 	return l, tea.Batch(cmds...)
@@ -198,12 +198,12 @@ func (l *Layout) focusPrev() tea.Cmd {
 	return l.focus(l.tree.children[0])
 }
 
-// focusLast focuses the last visible child.
-func (l *Layout) focusLast() tea.Cmd {
+// focusFirst focuses the last visible child.
+func (l *Layout) focusFirst() tea.Cmd {
 	if len(l.tree.children) == 0 {
 		return l.focus(nil)
 	}
-	return l.focus(l.tree.children[len(l.tree.children)-1])
+	return l.focus(l.tree.children[0])
 }
 
 // Focused returns the currently focused model, or nil.
@@ -212,14 +212,6 @@ func (l *Layout) Focused() tea.Model {
 		return nil
 	}
 	return l.focussed.model
-}
-
-func (l *Layout) focusMsg() tea.Cmd {
-	if l.focussed == nil || l.focussed.model == nil {
-		return nil
-	}
-	cmd := l.focussed.Update(tea.FocusMsg{})
-	return cmd
 }
 
 func (l *Layout) blurMsg() tea.Cmd {
@@ -234,7 +226,7 @@ func (l *Layout) Dispatch(msg tea.Msg) (tea.Msg, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case displaySelfMsg:
-		_, cmd := l.AddChildren(msg.Model)
+		_, cmd := l.AddChildren(msg.Priority, msg.Model)
 		return nil, cmd
 	case hideSelfMsg:
 		cmd := l.RemoveChild(msg.Model)
@@ -244,9 +236,7 @@ func (l *Layout) Dispatch(msg tea.Msg) (tea.Msg, tea.Cmd) {
 	case RequestFocusPrevMsg:
 		return nil, l.focusPrev()
 	case RequestFocusMainMsg:
-		return nil, l.focusLast()
-	case tea.FocusMsg:
-		return nil, l.focusMsg()
+		return nil, l.focusFirst()
 	case tea.BlurMsg:
 		return nil, l.blurMsg()
 	case tea.KeyPressMsg:

@@ -36,7 +36,7 @@ func newTerminal() *Terminal {
 }
 
 func (h *Terminal) Init() tea.Cmd {
-	return tiling.DisplaySelf()
+	return tiling.DisplaySelf(100)
 }
 
 func (h *Terminal) WriteStdin(b []byte) (int, error) {

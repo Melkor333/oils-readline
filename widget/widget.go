@@ -53,6 +53,7 @@ func WrapChildCmd(cmd tea.Cmd, w *Widget) tea.Cmd {
 func (w *Widget) Init() tea.Cmd {
 	return WrapChildCmd(w.Model.Init(), w)
 }
+
 func (w *Widget) Update(msg tea.Msg) (m tea.Model, cmd tea.Cmd) {
 	// TODO: Is it ever possible that `w` is nil??
 	if w == nil {
