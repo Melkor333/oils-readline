@@ -14,11 +14,14 @@ type TargetedMsg interface {
 
 type addWidgetMsg struct {
 	Model tea.Model
+	Msgs  []tea.Msg
 }
 
 // AddWidget is a func that returns a command to add a new widget to the Message Loop
-func AddWidget(m tea.Model) tea.Cmd {
-	return func() tea.Msg { return addWidgetMsg{m} }
+func AddWidget(m tea.Model, msgs ...tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		return addWidgetMsg{m, msgs}
+	}
 }
 
 // Sent by a widget to request all keyboard inputs

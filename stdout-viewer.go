@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"slices"
 
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
@@ -26,6 +27,53 @@ type StdoutViewer struct {
 	exitMenuSelect  menuSelection
 	Width           int
 	Height          int
+	temporary       bool
+}
+
+type StdoutViewerFactory struct {
+	shell           shell.Shell
+	handledCommands []shell.Command
+	stderr          bool
+}
+
+func NewStdoutFactory(s shell.Shell) *StdoutViewerFactory {
+	return &StdoutViewerFactory{shell: s}
+}
+
+func NewStderrFactory(s shell.Shell) *StdoutViewerFactory {
+	return &StdoutViewerFactory{shell: s, stderr: true}
+}
+
+func (f *StdoutViewerFactory) Init() tea.Cmd {
+	return nil
+}
+
+func (f *StdoutViewerFactory) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	return f, func() tea.Msg {
+		if m, ok := msg.(shell.StdoutMsg); ok && !f.stderr && !slices.Contains(f.handledCommands, m.Cmd) {
+			f.handledCommands = append(f.handledCommands, m.Cmd)
+			if hasNonColorEscape(m.Cmd.Stdout()) {
+				return nil
+			}
+			v := newStdoutViewer()
+			v.temporary = true
+			// TODO: Give it a command!
+			log.Print("returning StdoutViewer")
+			return addWidgetMsg{v, []tea.Msg{shell.CommandMsg(m)}}
+		}
+		if m, ok := msg.(shell.StderrMsg); ok && f.stderr && !slices.Contains(f.handledCommands, m.Cmd) {
+			f.handledCommands = append(f.handledCommands, m.Cmd)
+			v := newStderrViewer()
+			v.temporary = true
+			return addWidgetMsg{v, []tea.Msg{shell.CommandMsg(m)}}
+		}
+		return nil
+	}
+
+}
+
+func (f *StdoutViewerFactory) View() tea.View {
+	return tea.NewView("")
 }
 
 func (h *StdoutViewer) commandRunning() bool {
@@ -177,6 +225,14 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return h, cmd
 		}
 	case shell.CommandMsg:
+		if h.targetIndex != -1 {
+			return h, nil
+		}
+
+		if h.temporary && h.command != nil {
+			return h, tea.Batch(RemoveSelf(), tiling.HideSelf())
+		}
+
 		h.interactiveMode = false
 		h.exitMenuSelect = menuSelectHidden
 		if h.targetIndex < 0 {
@@ -189,6 +245,11 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.view.FillHeight = false
 			h.updateContent()
 		}
+
+		if h.temporary {
+			return h, nil
+		}
+
 		return h, ReleaseCapture()
 
 	case shell.CommandDoneMsg:
@@ -231,17 +292,29 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case shell.StdoutMsg:
+		if h.showStderr {
+			return h, nil
+		}
 		log.Print("Stdout output received:")
 		if h.currentIndex < 0 && h.command == msg.Cmd {
 			h.updateContent()
+			if h.temporary && hasNonColorEscape(h.View().Content) {
+				return h, func() tea.Msg { return RemoveSelfMsg{} }
+			}
 		}
 		log.Print(h.view.GetContent())
 		return h, nil
 
 	case shell.StderrMsg:
+		if !h.showStderr {
+			return h, nil
+		}
 		log.Print("Stderr output received")
-		if h.currentIndex < 0 && h.command == msg.Cmd && h.showStderr {
+		if h.currentIndex < 0 && h.command == msg.Cmd {
 			h.updateContent()
+			if h.temporary && hasNonColorEscape(h.View().Content) {
+				return h, func() tea.Msg { return RemoveSelfMsg{} }
+			}
 		}
 		return h, nil
 	}

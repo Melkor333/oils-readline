@@ -26,6 +26,10 @@ func widgets(m *model) map[string]func() tea.Cmd {
 	}
 }
 
+func RemoveSelf() tea.Cmd {
+	return func() tea.Msg { return RemoveSelfMsg{} }
+}
+
 type RemoveSelfMsg struct{ w *widget.Widget }
 type removeWidgetMsg struct{ w *widget.Widget }
 
@@ -88,10 +92,16 @@ func NewModel(shells []shell.Shell, children []tea.Model) *model {
 
 // addWidget appends a child model to the widget list (but not the layout).
 // It returns the child's Init command.
-func (m *model) addWidget(w *widget.Widget) tea.Cmd {
+func (m *model) addWidget(w *widget.Widget, msgs []tea.Msg) tea.Cmd {
+	var cmds []tea.Cmd
 	m.widgets = append(m.widgets, w)
 	// TODO: Should the model itself care about the init, or is init dependant of it being added to the model?
-	return w.Init()
+	cmds = append(cmds, w.Init())
+	for _, msg := range msgs {
+		_, msg := w.Update(msg)
+		cmds = append(cmds, msg)
+	}
+	return tea.Batch(cmds...)
 }
 
 // AddChild appends a child model to the end of the widget list and the layout.
@@ -245,13 +255,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// in case history/layout changed thr msg.
+	// in case history/layout changed the msg.
 	if tmsg, ok := msg.(TargetedMsg); ok {
 		_, cmd := tmsg.TargetWidget().Update(msg)
 		return m, cmd
 	}
 
-	// Second switch: handle all other cases, returning normally.
 	switch msg := msg.(type) {
 	case releaseCaptureMsg:
 		m.captureWidget = nil
@@ -277,8 +286,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case addWidgetMsg:
+		log.Print("requested widget!")
 		w := &widget.Widget{Model: msg.Model}
-		return m, m.addWidget(w)
+		return m, m.addWidget(w, msg.Msgs)
 
 	case removeWidgetMsg:
 		m.RemoveChild(msg.w)
@@ -312,7 +322,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history.Add(cmd)
 
 		log.Print("Running command")
-		return m, tea.Batch(
+		return m, tea.Sequence(
 			func() tea.Msg { return shell.CommandMsg{Cmd: cmd} },
 			func() tea.Msg { cmd.Run(); return shell.CommandDoneMsg{Cmd: cmd} },
 		)
@@ -328,6 +338,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// almost exclusively handles keypressmsg
 	msg, cmd2 := m.layout.Dispatch(msg)
 	cmd = tea.Batch(cmd, cmd2)
 	if msg == nil {
@@ -337,6 +348,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	for _, child := range m.widgets {
 		_, cmd := child.Update(msg)
+		log.Print(reflect.TypeOf(cmd), cmd)
 		cmds = append(cmds, cmd)
 	}
 	return m, tea.Batch(cmds...)

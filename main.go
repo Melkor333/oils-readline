@@ -91,7 +91,11 @@ func main() {
 
 	model := NewModel(
 		[]shell.Shell{s},
-		[]tea.Model{newBasicPrompt(s), newTerminal(), newStderrViewer()},
+		[]tea.Model{
+			newBasicPrompt(s),
+			NewStdoutFactory(s),
+			NewStderrFactory(s),
+		},
 	)
 	defer model.Cancel()
 
