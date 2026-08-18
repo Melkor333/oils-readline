@@ -26,8 +26,8 @@ func (n *node) Render() *lipgloss.Layer {
 	}
 
 	content := ""
-	if n.model != nil {
-		content = n.model.View().Content
+	if n.widget != nil {
+		content = n.widget.View().Content
 	}
 
 	// seems unnecessary! :)

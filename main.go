@@ -29,10 +29,12 @@ import (
 	// editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 
 	"log"
+	"log/slog"
 
 	"github.com/Melkor333/oils-readline/fanos"
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/Melkor333/oils-readline/tiling"
+	"github.com/Melkor333/oils-readline/widget"
 )
 
 var Version = "devel"
@@ -79,6 +81,7 @@ func main() {
 		log.Fatal(err)
 	}
 	if len(os.Getenv("DEBUG")) > 0 {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
 		f, err := tea.LogToFile("debug.log", "debug")
 		if err != nil {
 			fmt.Println("fatal:", err)
@@ -91,7 +94,7 @@ func main() {
 
 	model := NewModel(
 		[]shell.Shell{s},
-		[]tea.Model{
+		[]widget.Model{
 			newBasicPrompt(s),
 			NewStdoutFactory(s),
 			NewStderrFactory(s),

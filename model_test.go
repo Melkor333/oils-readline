@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/x/exp/teatest/v2"
 	"github.com/creack/pty"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type MockShell struct{}
@@ -64,9 +65,9 @@ func newBlock(label, color string) *blockModel {
 	return &blockModel{label: label, color: color}
 }
 
-func (m *blockModel) Init() tea.Cmd { return tiling.DisplaySelf(0) }
+func (m *blockModel) Init() widget.Action { return tiling.DisplaySelf(0) }
 
-func (m *blockModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *blockModel) Update(msg tea.Msg) (widget.Model, widget.Action) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -74,6 +75,8 @@ func (m *blockModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, quitSoon()
 }
+
+func (m *blockModel) Name() string { return "TEST Blockmodel " }
 
 func (m *blockModel) View() tea.View {
 	return tea.NewView(lipgloss.NewStyle().
@@ -101,15 +104,17 @@ func newRemovable(label string) *removableModel {
 	return &removableModel{label: label}
 }
 
-func (m *removableModel) Init() tea.Cmd { return tiling.DisplaySelf(0) }
+func (m *removableModel) Name() string { return "TEST Removable Model" }
 
-func (m *removableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *removableModel) Init() widget.Action { return tiling.DisplaySelf(0) }
+
+func (m *removableModel) Update(msg tea.Msg) (widget.Model, widget.Action) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 	case triggerRemoveMsg:
-		return m, func() tea.Msg { return RemoveSelfMsg{} }
+		return m, RemoveSelfMsg{}
 	}
 	return m, nil
 }
@@ -127,56 +132,31 @@ func (m *removableModel) View() tea.View {
 type triggerRemoveMsg struct{}
 
 func TestChildSelfRemove(t *testing.T) {
-	m := NewModel(S, []tea.Model{
+	m := NewModel(S, []widget.Model{
 		newBlock("A", "5"),
 		newRemovable("B"),
 		newBlock("C", "7"),
 	})
-	m2 := NewModel(S, []tea.Model{
+	m2 := NewModel(S, []widget.Model{
 		newBlock("A", "5"),
 		newBlock("C", "7"),
 	})
 
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	updated2, _ := m2.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m2.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	updated, _ = m.Update(removeWidgetMsg{w: m.widgets[1]})
+	require.Equal(t, 3, len(m.widgets))
+	m.Update(removeWidgetMsg{w: m.widgets[1]})
 
 	if len(m.widgets) != 2 {
 		t.Fatalf("expected 2 children after removal, got %d", len(m.widgets))
 	}
 
-	assert.Equal(t, updated.View().Content, updated2.View().Content)
-}
-
-func TestWrapChildCmd(t *testing.T) {
-	w := &widget.Widget{}
-	removeCmd := func() tea.Msg { return RemoveSelfMsg{} }
-	wrapped := widget.WrapChildCmd(removeCmd, w)
-	msg := wrapped()
-	rcm, ok := msg.(RemoveSelfMsg)
-	if !ok {
-		t.Fatalf("expected removeChildMsg, got %T", msg)
-	}
-	if rcm.w != w {
-		t.Errorf("expected same Widget, got %d", rcm.w)
-	}
-
-	ww := &widget.Widget{}
-	quitCmd := func() tea.Msg { return tea.QuitMsg{} }
-	wrapped2 := widget.WrapChildCmd(quitCmd, ww)
-	msg2 := wrapped2()
-	if _, ok := msg2.(tea.QuitMsg); !ok {
-		t.Errorf("expected tea.QuitMsg to pass through, got %T", msg2)
-	}
-
-	if widget.WrapChildCmd(nil, w) != nil {
-		t.Errorf("expected nil for nil cmd")
-	}
+	assert.Equal(t, m2.View().Content, m.View().Content)
 }
 
 func TestAddRemoveChild(t *testing.T) {
-	m := NewModel(S, []tea.Model{newBlock("A", "5")})
+	m := NewModel(S, []widget.Model{newBlock("A", "5")})
 	m.layout.Split(tiling.SplitVertical)
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -197,7 +177,7 @@ func TestAddRemoveChild(t *testing.T) {
 		t.Fatalf("expected 1 child, got %d", len(m.widgets))
 	}
 
-	fresh := NewModel(S, []tea.Model{newBlock("B", "6")})
+	fresh := NewModel(S, []widget.Model{newBlock("B", "6")})
 	fresh.layout.Split(tiling.SplitVertical)
 	updated2, _ := fresh.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	fresh = updated2.(*model)
@@ -264,8 +244,8 @@ func TestPropertyAddRemoveChildren(t *testing.T) {
 	}
 }
 
-func makeModels(labels []string) []tea.Model {
-	models := make([]tea.Model, len(labels))
+func makeModels(labels []string) []widget.Model {
+	models := make([]widget.Model, len(labels))
 	for i, l := range labels {
 		models[i] = newBlock(l, "5")
 	}
@@ -282,11 +262,13 @@ func newCaptureMock() *captureMockModel {
 	return &captureMockModel{}
 }
 
-func (m *captureMockModel) Init() tea.Cmd {
-	return tea.Batch(tiling.DisplaySelf(0), RequestCapture())
+func (m *captureMockModel) Name() string { return "TEST Capture Mock Model" }
+
+func (m *captureMockModel) Init() widget.Action {
+	return widget.Batch{tiling.DisplaySelf(0), RequestCapture()}
 }
 
-func (m *captureMockModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *captureMockModel) Update(msg tea.Msg) (widget.Model, widget.Action) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		m.received = append(m.received, msg)
@@ -307,7 +289,7 @@ func (m *captureMockModel) View() tea.View {
 }
 
 func TestKeyCapture(t *testing.T) {
-	m := NewModel(S, []tea.Model{newCaptureMock()})
+	m := NewModel(S, []widget.Model{newCaptureMock()})
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
 
@@ -333,14 +315,14 @@ func TestKeyCapture(t *testing.T) {
 	t.Logf("widget count: %v", len(model.widgets))
 	for _, w := range model.widgets {
 		if cm, ok := w.Model.(*captureMockModel); ok {
-			if len(cm.received) != 4 {
+			if len(cm.received) != 3 {
 				t.Fatalf("expected 4 keypresses, got %d", len(cm.received))
 			}
 			if cm.received[0].String() != "ctrl+c" {
 				t.Errorf("expected first key to be ctrl+c, got %q", cm.received[0].String())
 			}
-			if cm.received[2].String() != "ctrl+c" {
-				t.Errorf("expected first key to be ctrl+c, got %q", cm.received[0].String())
+			if cm.received[2].String() != "q" {
+				t.Errorf("expected third key to be ctrl+c, got %q", cm.received[2].String())
 			}
 			return
 		}

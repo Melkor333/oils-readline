@@ -13,6 +13,7 @@ import (
 	"github.com/Melkor333/oils-readline/history"
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/Melkor333/oils-readline/tiling"
+	"github.com/Melkor333/oils-readline/widget"
 )
 
 type Terminal struct {
@@ -35,8 +36,12 @@ func newTerminal() *Terminal {
 	return &Terminal{targetIndex: -1, currentIndex: -1, exitMenuSelect: menuSelectHidden, term: vt.NewSafeEmulator(10, 10)}
 }
 
-func (h *Terminal) Init() tea.Cmd {
+func (h *Terminal) Init() widget.Action {
 	return tiling.DisplaySelf(100)
+}
+
+func (h *Terminal) Name() string {
+	return "Terminal"
 }
 
 func (h *Terminal) WriteStdin(b []byte) (int, error) {
@@ -50,7 +55,7 @@ func (h *Terminal) IsInteractive() bool {
 	return h.interactiveMode
 }
 
-func (h *Terminal) requestHistoryEntry(index int) tea.Cmd {
+func (h *Terminal) requestHistoryEntry(index int) widget.Action {
 	return func() tea.Msg {
 		return history.RequestHistoryEntryMsg{Index: index}
 	}
@@ -60,7 +65,7 @@ func (h *Terminal) flushOutput() {
 	h.term = vt.NewSafeEmulator(h.Width, h.Height-1)
 }
 
-func (h *Terminal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (h *Terminal) Update(msg tea.Msg) (widget.Model, widget.Action) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if h.interactiveMode {

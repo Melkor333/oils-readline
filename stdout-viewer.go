@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"slices"
 
 	"charm.land/bubbles/v2/viewport"
@@ -15,6 +15,7 @@ import (
 	"github.com/Melkor333/oils-readline/history"
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/Melkor333/oils-readline/tiling"
+	"github.com/Melkor333/oils-readline/widget"
 )
 
 type StdoutViewer struct {
@@ -28,6 +29,13 @@ type StdoutViewer struct {
 	Width           int
 	Height          int
 	temporary       bool
+}
+
+func (s *StdoutViewer) Name() string {
+	if s.showStderr {
+		return "Stderr Viewer"
+	}
+	return "Stdout Viewer"
 }
 
 type StdoutViewerFactory struct {
@@ -44,11 +52,15 @@ func NewStderrFactory(s shell.Shell) *StdoutViewerFactory {
 	return &StdoutViewerFactory{shell: s, stderr: true}
 }
 
-func (f *StdoutViewerFactory) Init() tea.Cmd {
+func (f *StdoutViewerFactory) Name() string {
+	return "StdoutViewer Factory"
+}
+
+func (f *StdoutViewerFactory) Init() widget.Action {
 	return nil
 }
 
-func (f *StdoutViewerFactory) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (f *StdoutViewerFactory) Update(msg tea.Msg) (widget.Model, widget.Action) {
 	return f, func() tea.Msg {
 		if m, ok := msg.(shell.StdoutMsg); ok && !f.stderr && !slices.Contains(f.handledCommands, m.Cmd) {
 			f.handledCommands = append(f.handledCommands, m.Cmd)
@@ -57,15 +69,14 @@ func (f *StdoutViewerFactory) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			v := newStdoutViewer()
 			v.temporary = true
-			// TODO: Give it a command!
-			log.Print("returning StdoutViewer")
-			return addWidgetMsg{v, []tea.Msg{shell.CommandMsg(m)}}
+			slog.Debug("returning StdoutViewer")
+			return AddWidget(&widget.Widget{v}, shell.CommandMsg(m))
 		}
 		if m, ok := msg.(shell.StderrMsg); ok && f.stderr && !slices.Contains(f.handledCommands, m.Cmd) {
 			f.handledCommands = append(f.handledCommands, m.Cmd)
 			v := newStderrViewer()
 			v.temporary = true
-			return addWidgetMsg{v, []tea.Msg{shell.CommandMsg(m)}}
+			return AddWidget(&widget.Widget{v}, shell.CommandMsg(m))
 		}
 		return nil
 	}
@@ -103,7 +114,7 @@ func newStderrViewer() *StdoutViewer {
 	return &StdoutViewer{targetIndex: -1, currentIndex: -1, showStderr: true, exitMenuSelect: menuSelectHidden}
 }
 
-func (h *StdoutViewer) Init() tea.Cmd {
+func (h *StdoutViewer) Init() widget.Action {
 	return tiling.DisplaySelf(100)
 }
 
@@ -118,13 +129,13 @@ func (h *StdoutViewer) IsInteractive() bool {
 	return h.interactiveMode
 }
 
-func (h *StdoutViewer) requestHistoryEntry(index int) tea.Cmd {
+func (h *StdoutViewer) requestHistoryEntry(index int) widget.Action {
 	return func() tea.Msg {
 		return history.RequestHistoryEntryMsg{Index: index}
 	}
 }
 
-func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (h *StdoutViewer) Update(msg tea.Msg) (widget.Model, widget.Action) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if h.interactiveMode {
@@ -220,7 +231,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.updateContent()
 			return h, nil
 		default:
-			var cmd tea.Cmd
+			var cmd widget.Action
 			h.view, cmd = h.view.Update(msg)
 			return h, cmd
 		}
@@ -230,7 +241,10 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if h.temporary && h.command != nil {
-			return h, tea.Batch(RemoveSelf(), tiling.HideSelf())
+			return h, widget.Batch{
+				RemoveSelf(),
+				tiling.HideSelf(),
+			}
 		}
 
 		h.interactiveMode = false
@@ -260,7 +274,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, ReleaseCapture()
 
 	case history.HistoryEntryMsg:
-		log.Printf("New Command with index %v: %v", msg.Index, msg)
+		slog.Debug("New Command", "index", msg.Index, "msg", msg)
 		if h.targetIndex > msg.Total {
 			h.targetIndex = msg.Total
 			if msg.Total == msg.Index+1 {
@@ -275,7 +289,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.command = msg.Cmd
 			h.updateContent()
 		}
-		log.Printf("Current: %v; Target %v", h.currentIndex, h.targetIndex)
+		slog.Debug("HistoryEntry!", "current", h.currentIndex, "target", h.targetIndex)
 		return h, nil
 
 	case tea.WindowSizeMsg:
@@ -295,21 +309,21 @@ func (h *StdoutViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if h.showStderr {
 			return h, nil
 		}
-		log.Print("Stdout output received:")
+		slog.Debug("Stdout output received:")
 		if h.currentIndex < 0 && h.command == msg.Cmd {
 			h.updateContent()
 			if h.temporary && hasNonColorEscape(h.View().Content) {
 				return h, func() tea.Msg { return RemoveSelfMsg{} }
 			}
 		}
-		log.Print(h.view.GetContent())
+		slog.Debug("got shell content", "content", h.view.GetContent())
 		return h, nil
 
 	case shell.StderrMsg:
 		if !h.showStderr {
 			return h, nil
 		}
-		log.Print("Stderr output received")
+		slog.Debug("Stderr output received")
 		if h.currentIndex < 0 && h.command == msg.Cmd {
 			h.updateContent()
 			if h.temporary && hasNonColorEscape(h.View().Content) {
@@ -329,7 +343,7 @@ func (h *StdoutViewer) View() tea.View {
 	}
 
 	if h.interactiveMode {
-		log.Print("Interactive mode")
+		slog.Debug("Interactive mode")
 		if h.exitMenuSelect != menuSelectHidden {
 			sendCtrlc := activeColor.Border(lipgloss.ASCIIBorder()).Render("Sendctrlc")
 			exit := activeColor.Border(lipgloss.ASCIIBorder()).Render("Exit interactive mode")

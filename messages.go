@@ -7,26 +7,23 @@ import (
 
 // A Targeted Message is an interface used by messages that should be sent to a specific widget
 // When a message matches the interface, it will be sent to the widget it contains
-// TODO: Should this take a generic `tea.Model` or is Widget really necessary?
 type TargetedMsg interface {
 	TargetWidget() *widget.Widget
 }
 
 type addWidgetMsg struct {
-	Model tea.Model
-	Msgs  []tea.Msg
+	Widget *widget.Widget
+	Msgs   []tea.Msg
 }
 
 // AddWidget is a func that returns a command to add a new widget to the Message Loop
-func AddWidget(m tea.Model, msgs ...tea.Msg) tea.Cmd {
-	return func() tea.Msg {
-		return addWidgetMsg{m, msgs}
-	}
+func AddWidget(w *widget.Widget, msgs ...tea.Msg) widget.Action {
+	return addWidgetMsg{w, msgs}
 }
 
 // Sent by a widget to request all keyboard inputs
-func RequestCapture() tea.Cmd {
-	return func() tea.Msg { return requestCaptureMsg{} }
+func RequestCapture() widget.Action {
+	return requestCaptureMsg{}
 }
 
 type requestCaptureMsg struct{ Widget *widget.Widget }
@@ -34,8 +31,8 @@ type requestCaptureMsg struct{ Widget *widget.Widget }
 func (msg requestCaptureMsg) Tag(w *widget.Widget) tea.Msg { msg.Widget = w; return msg }
 
 // Sent by a widget to stop receiving all keyboard input
-func ReleaseCapture() tea.Cmd {
-	return func() tea.Msg { return releaseCaptureMsg{} }
+func ReleaseCapture() widget.Action {
+	return releaseCaptureMsg{}
 }
 
 type releaseCaptureMsg struct{ widget *widget.Widget }

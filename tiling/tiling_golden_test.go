@@ -3,8 +3,8 @@ package tiling
 import (
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/Melkor333/oils-readline/widget"
 	"github.com/charmbracelet/x/exp/golden"
 	"github.com/stretchr/testify/assert"
 )
@@ -28,8 +28,8 @@ func renderLayer(l *lipgloss.Layer) string {
 }
 
 func TestSingleChild(t *testing.T) {
-	hor, _ := New().Size(80, 24).Split(SplitHorizontal).AddChildren(0, M{"SINGLE"})
-	vert, _ := New().Size(80, 24).Split(SplitVertical).AddChildren(0, M{"SINGLE"})
+	hor, _ := New(80, 24).Split(SplitHorizontal).AddChildren(0, &widget.Widget{M{"SINGLE"}})
+	vert, _ := New(80, 24).Split(SplitVertical).AddChildren(0, &widget.Widget{M{"SINGLE"}})
 	horStr := renderLayer(hor.RenderLayer())
 	vertStr := renderLayer(vert.RenderLayer())
 	golden.RequireEqual(t, []byte(horStr))
@@ -40,9 +40,9 @@ func TestSingleChild(t *testing.T) {
 }
 
 func TestLayoutEmpty(t *testing.T) {
-	l := New().Size(80, 10)
+	l := New(10, 10)
 	result := renderLayer(l.RenderLayer())
-	assert.Equal(t, "\n\n\n\n\n\n\n\n\n", result, "should only be newlines.")
+	assert.Equal(t, "          \n          \n          \n          \n          \n          \n          \n          \n          \n          ", result, "should only be newlines and spaces.")
 }
 
 //func TestTileSizes(t *testing.T) {
@@ -75,57 +75,57 @@ func TestGoldenRender(t *testing.T) {
 	tests := []struct {
 		name     string
 		layout   *Layout
-		children []tea.Model
+		children []*widget.Widget
 	}{
 		{
 			name:     "2_children",
-			layout:   New().Size(80, 24),
-			children: []tea.Model{M{"ONE"}, M{"TWO"}},
+			layout:   New(80, 24),
+			children: []*widget.Widget{{M{"ONE"}}, {M{"TWO"}}},
 		},
 		{
 			name:     "3_children",
-			layout:   New().Size(80, 24),
-			children: []tea.Model{M{"M"}, M{"S1"}, M{"S2"}},
+			layout:   New(80, 24),
+			children: []*widget.Widget{{M{"M"}}, {M{"S1"}}, {M{"S2"}}},
 		},
 		{
 			name:     "master_ratio_75",
-			layout:   New().Size(80, 24).MasterRatio(0.75),
-			children: []tea.Model{M{"BIG"}, M{"SMALL"}},
+			layout:   New(80, 24).MasterRatio(0.75),
+			children: []*widget.Widget{{M{"BIG"}}, {M{"SMALL"}}},
 		},
 		{
 			name:     "master_ratio_25",
-			layout:   New().Size(80, 24).MasterRatio(0.25),
-			children: []tea.Model{M{"SMALL"}, M{"BIG"}},
+			layout:   New(80, 24).MasterRatio(0.25),
+			children: []*widget.Widget{{M{"SMALL"}}, {M{"BIG"}}},
 		},
 		{
 			name:     "small_terminal",
-			layout:   New().Size(20, 5),
-			children: []tea.Model{M{"A"}, M{"B"}},
+			layout:   New(20, 5),
+			children: []*widget.Widget{{M{"A"}}, {M{"B"}}},
 		},
 		{
 			name:     "custom_border_rounded",
-			layout:   New().Size(80, 24).BorderStyle(lipgloss.RoundedBorder()),
-			children: []tea.Model{M{"A"}, M{"B"}},
+			layout:   New(80, 24).BorderStyle(lipgloss.RoundedBorder()),
+			children: []*widget.Widget{{M{"A"}}, {M{"B"}}},
 		},
 		{
 			name:     "custom_border_thick",
-			layout:   New().Size(80, 24).BorderStyle(lipgloss.ThickBorder()),
-			children: []tea.Model{M{"A"}, M{"B"}, M{"C"}},
+			layout:   New(80, 24).BorderStyle(lipgloss.ThickBorder()),
+			children: []*widget.Widget{{M{"A"}}, {M{"B"}}, {M{"C"}}},
 		},
 		{
 			name:     "double_border",
-			layout:   New().Size(80, 24).BorderStyle(lipgloss.DoubleBorder()),
-			children: []tea.Model{M{"X"}, M{"Y"}},
+			layout:   New(80, 24).BorderStyle(lipgloss.DoubleBorder()),
+			children: []*widget.Widget{{M{"X"}}, {M{"Y"}}},
 		},
 		{
 			name:     "master_count_2",
-			layout:   New().Size(80, 24).MasterCount(2),
-			children: []tea.Model{M{"M1"}, M{"M2"}, M{"S1"}},
+			layout:   New(80, 24).MasterCount(2),
+			children: []*widget.Widget{{M{"M1"}}, {M{"M2"}}, {M{"S1"}}},
 		},
 		{
 			name:     "four_children",
-			layout:   New().Size(80, 24),
-			children: []tea.Model{M{"A"}, M{"B"}, M{"C"}, M{"D"}},
+			layout:   New(80, 24),
+			children: []*widget.Widget{{M{"A"}}, {M{"B"}}, {M{"C"}}, {M{"D"}}},
 		},
 	}
 

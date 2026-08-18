@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/Melkor333/oils-readline/shell"
+	"github.com/Melkor333/oils-readline/widget"
 	"github.com/creack/pty"
 	"github.com/stretchr/testify/assert"
 )
@@ -36,7 +37,7 @@ func newFakeCmd(cmdLine, output string) shell.Command {
 	return &fakeCommand{commandLine: cmdLine, stdout: output}
 }
 
-func updateStdoutViewer(t *testing.T, h tea.Model, msg tea.Msg) *StdoutViewer {
+func updateStdoutViewer(t *testing.T, h widget.Model, msg tea.Msg) *StdoutViewer {
 	t.Helper()
 	result, _ := h.Update(msg)
 	return result.(*StdoutViewer)

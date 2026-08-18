@@ -6,10 +6,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/Melkor333/oils-readline/history"
 	"github.com/Melkor333/oils-readline/shell"
+	"github.com/Melkor333/oils-readline/widget"
 	"github.com/stretchr/testify/assert"
 )
 
-func updateTerminal(t *testing.T, h tea.Model, msg tea.Msg) *Terminal {
+func updateTerminal(t *testing.T, h widget.Model, msg tea.Msg) *Terminal {
 	t.Helper()
 	result, _ := h.Update(msg)
 	return result.(*Terminal)

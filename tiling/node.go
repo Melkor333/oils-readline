@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/Melkor333/oils-readline/widget"
 )
 
 // A simple
@@ -16,23 +17,21 @@ type node struct {
 	rectangle    rec
 	//content      string
 	border   lipgloss.Border
-	model    tea.Model
+	widget   *widget.Widget
 	priority int
 }
 
-func (n *node) Update(msg tea.Msg) tea.Cmd {
-	var cmd tea.Cmd
-	if n.model != nil {
-		n.model, cmd = n.model.Update(msg)
-		return cmd
+func (n *node) Update(msg tea.Msg) widget.Action {
+	if n.widget != nil {
+		return n.widget.Update(msg)
 	}
 	return nil
 }
 
-func newNode(m tea.Model, positionFunc SplitFunc) *node {
+func newNode(m *widget.Widget, positionFunc SplitFunc) *node {
 	node := &node{
 		positionFunc: positionFunc,
-		model:        m,
+		widget:       m,
 		// Prepare left/Right for binary tree
 		// But allow (nested) list-based tiling
 		//children: make([]*Node, 2),
@@ -52,8 +51,8 @@ func (n *node) split(split SplitFunc) {
 }
 
 // TODO: make this a separate func. to e.g. hard limit to 2 elems
-func (n *node) addChild(model tea.Model, priority int) (*node, tea.Cmd) {
-	child := newNode(model, n.positionFunc)
+func (n *node) addChild(w *widget.Widget, priority int) (*node, widget.Action) {
+	child := newNode(w, n.positionFunc)
 	child.parent = n
 	child.setBorder(n.border)
 	child.priority = priority
@@ -62,9 +61,9 @@ func (n *node) addChild(model tea.Model, priority int) (*node, tea.Cmd) {
 	return child, cmd
 }
 
-func (n *node) removeChild(m tea.Model) bool {
+func (n *node) removeChild(m *widget.Widget) bool {
 	for i, c := range n.children {
-		if c.model == m {
+		if c.widget == m {
 			n.children = append(n.children[:i], n.children[i+1:]...)
 			return true
 		}
@@ -75,9 +74,9 @@ func (n *node) removeChild(m tea.Model) bool {
 	return false
 }
 
-func (n *node) contains(m tea.Model) bool {
+func (n *node) contains(w *widget.Widget) bool {
 	for _, c := range n.children {
-		if c.model == m || c.contains(m) {
+		if c.widget == w || c.contains(w) {
 			return true
 		}
 	}
@@ -99,11 +98,11 @@ func (n *node) SetSize(width, height int) {
 }
 
 // TODO: Split up into Size and position (2 passes for flutter-like behaviour)
-func (n *node) position(available rec) tea.Cmd {
+func (n *node) position(available rec) widget.Action {
 	n.rectangle = available
-	if n.model != nil {
-		var cmd tea.Cmd
-		n.model, cmd = n.model.Update(tea.WindowSizeMsg{
+	if n.widget != nil {
+		var cmd widget.Action
+		cmd = n.widget.Update(tea.WindowSizeMsg{
 			Width:  n.rectangle.width,
 			Height: n.rectangle.height,
 		})
@@ -119,11 +118,11 @@ func (n *node) position(available rec) tea.Cmd {
 	case 1:
 		return n.children[0].position(available)
 	default:
-		var cmds []tea.Cmd
+		var cmds widget.Batch
 		sizes := n.positionFunc(c, available)
 		for c, child := range n.children {
 			cmds = append(cmds, child.position(sizes[c]))
 		}
-		return tea.Batch(cmds...)
+		return cmds
 	}
 }

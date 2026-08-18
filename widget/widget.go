@@ -1,7 +1,8 @@
 package widget
 
 import (
-	"log"
+	"fmt"
+	"log/slog"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -18,47 +19,99 @@ import (
 //	}
 //}
 
+type WidgetOption func(Widget) (Widget, error)
+type DispatchFunc func(Widget, tea.Msg) (Widget, tea.Cmd)
+type StopProcessingMsg struct{}
+
 // A Tagged Message is targeted at a specific widget.
 type TaggedMsg interface {
 	Tag(w *Widget) tea.Msg
 }
 
-// Widget pairs a child model with a unique ID for stable identity tracking.
-type Widget struct {
-	tea.Model
+// Action is either a tea.Cmd or a tea.Msg
+// For now Msgs are directly passed back to the `model.Update`
+// Since go has not a proper sum type, I don't see a better way to solve this
+// Without going into messy generics territory
+type Action any
+type Batch []Action
+type Sequence []Action
+
+type Model interface {
+	Init() Action
+	View() tea.View
+	Update(tea.Msg) (Model, Action)
+	Name() string
 }
 
-// WrapChildCmd wraps a child's command to intercept RemoveSelfMsg and convert it
-// to a removeChildMsg with the correct child ID.
-func WrapChildCmd(cmd tea.Cmd, w *Widget) tea.Cmd {
+type Widget struct{ Model }
+
+// Wrap a
+func WrapAction(action Action, w *Widget) Action {
+	if action == nil {
+		return nil
+	}
+	if batch, ok := action.(Batch); ok {
+		for i, _action := range batch {
+			batch[i] = WrapAction(_action, w)
+		}
+		return batch
+	}
+	if sequence, ok := action.(Sequence); ok {
+		for i, _action := range sequence {
+			sequence[i] = WrapAction(_action, w)
+		}
+		return sequence
+	}
+
+	// if a function produces a `tea.Cmd`, that's captured here.
+	if _cmd, ok := action.(tea.Cmd); ok {
+		slog.Debug("captured Cmd", "action", fmt.Sprintf("%T", _cmd))
+		return wrapTeaCmd(_cmd, w)
+	}
+	// If the func is only ever treated as `tea.Msg` it lands here.
+	if _cmd, ok := action.(func() tea.Msg); ok {
+		slog.Debug("captured untyped Cmd", "action", fmt.Sprintf("%T", _cmd))
+		return wrapTeaCmd(_cmd, w)
+	}
+	slog.Debug("captured msg", "action", fmt.Sprintf("%T", action))
+	return wrapMsg(action, w)
+}
+
+// wrapMsg wraps a message and makes sure it's properly tagged
+func wrapMsg(msg tea.Msg, w *Widget) tea.Msg {
+	switch m := msg.(type) {
+	case tea.BatchMsg:
+		for i, c := range m {
+			m[i] = wrapTeaCmd(c, w)
+		}
+		return m
+	case TaggedMsg:
+		slog.Debug("tagged message!", "widget", w)
+		return m.Tag(w)
+	}
+	return msg
+}
+
+// WrapChildCmd wraps a child's command to intercept tagged Msgs and properly tag them
+// This is run "around" the childcmd
+func wrapTeaCmd(cmd tea.Cmd, w *Widget) tea.Cmd {
 	if cmd == nil {
 		return nil
 	}
 	return func() tea.Msg {
 		msg := cmd()
-		switch m := msg.(type) {
-		case tea.BatchMsg:
-			for i, c := range m {
-				m[i] = WrapChildCmd(c, w)
-			}
-			return m
-		case TaggedMsg:
-			log.Printf("Tagged message for %v!", w)
-			return m.Tag(w)
-		}
-		return msg
+		return wrapMsg(msg, w)
 	}
 }
 
-func (w *Widget) Init() tea.Cmd {
-	return WrapChildCmd(w.Model.Init(), w)
+func (w *Widget) Init() Action {
+	return WrapAction(w.Model.Init(), w)
 }
 
-func (w *Widget) Update(msg tea.Msg) (m tea.Model, cmd tea.Cmd) {
-	// TODO: Is it ever possible that `w` is nil??
+func (w *Widget) Update(msg tea.Msg) (cmd Action) {
 	if w == nil {
-		return nil, nil
+		return nil
 	}
 	w.Model, cmd = w.Model.Update(msg)
-	return w, WrapChildCmd(cmd, w)
+	return WrapAction(cmd, w)
 }

@@ -12,36 +12,35 @@ import (
 // displaySelfMsg is sent by a widget (or on its behalf) to add itself to the
 // layout.
 type displaySelfMsg struct {
-	Model    tea.Model
+	Widget   *widget.Widget
 	Priority int
 }
 
 func (msg displaySelfMsg) Tag(w *widget.Widget) tea.Msg {
-	msg.Model = w
+	msg.Widget = w
 	return msg
 }
 
 // DisplaySelf returns a command that requests the given model be made visible in the layout.
 // priority determines the order (lower = first).
-func DisplaySelf(priority int) tea.Cmd {
-	return func() tea.Msg { return displaySelfMsg{Model: nil, Priority: priority} }
+func DisplaySelf(priority int) widget.Action {
+	return displaySelfMsg{Widget: nil, Priority: priority}
 }
 
 // HideSelf returns a command that requests the given model be removed from the layout.
-func HideSelf() tea.Cmd {
-	return func() tea.Msg { return hideSelfMsg{} }
+func HideSelf() widget.Action {
+	return hideSelfMsg{}
 }
 
 type hideSelfMsg struct {
-	Model tea.Model
+	*widget.Widget
 }
 
 // TODO: Allow tea.Model and test for *wisdget.Widget in the widget library.
 // To make this independent from  the widget.
 // Users can then choose to use a wrapper + Tag or not.
 func (msg hideSelfMsg) Tag(w *widget.Widget) tea.Msg {
-	msg.Model = w
-	return msg
+	return hideSelfMsg{w}
 }
 
 // To be used by widgets
@@ -70,32 +69,37 @@ type Layout struct {
 	inactiveColor color.Color
 }
 
-func New() *Layout {
-	return &Layout{
+func New(width, height int) *Layout {
+	l := &Layout{
 		tree:          newNode(nil, SplitHorizontal),
 		border:        lipgloss.NormalBorder(),
 		activeColor:   lipgloss.Color("2"),
 		inactiveColor: lipgloss.Color("240"),
+		Width:         width,
+		Height:        height,
 	}
-}
-
-func (l *Layout) Size(w, h int) *Layout {
-	l.Width = w
-	l.Height = h
-	l.tree.position(rec{0, 0, w, h})
+	// This must be nil without a child
+	l.tree.position(rec{0, 0, width, height})
 	return l
 }
 
-func (l *Layout) RemoveChild(m tea.Model) tea.Cmd {
-	wasFocused := l.focussed != nil && l.focussed.model == m
+func (l *Layout) Size(w, h int) (*Layout, widget.Action) {
+	l.Width = w
+	l.Height = h
+	// TODO: return the actions!!
+	return l, l.tree.position(rec{0, 0, w, h})
+}
+
+func (l *Layout) RemoveChild(w *widget.Widget) widget.Action {
+	wasFocused := l.focussed != nil && l.focussed.widget == w
 
 	cmd := l.tree.Update(tea.BlurMsg{})
-	l.tree.removeChild(m)
+	l.tree.removeChild(w)
 	l.tree.position(l.tree.rectangle)
 
 	if wasFocused {
 		if len(l.tree.children) > 0 {
-			return tea.Sequence(cmd, l.focus(l.tree.children[0]))
+			return widget.Sequence{cmd, l.focus(l.tree.children[0])}
 		} else {
 			l.focussed = nil
 		}
@@ -111,11 +115,11 @@ func (l *Layout) Split(split SplitFunc) *Layout {
 	return l
 }
 
-func (l *Layout) AddChildren(priority int, mm ...tea.Model) (*Layout, tea.Cmd) {
-	var cmds []tea.Cmd
+func (l *Layout) AddChildren(priority int, mm ...*widget.Widget) (*Layout, widget.Action) {
+	var cmds widget.Batch
 	var node *node
 	for _, m := range mm {
-		var cmd tea.Cmd
+		var cmd widget.Action
 		node, cmd = l.tree.addChild(m, priority)
 		cmds = append(cmds, cmd)
 		if l.focussed == nil {
@@ -124,7 +128,7 @@ func (l *Layout) AddChildren(priority int, mm ...tea.Model) (*Layout, tea.Cmd) {
 			cmds = append(cmds, node.Update(tea.BlurMsg{}))
 		}
 	}
-	return l, tea.Batch(cmds...)
+	return l, cmds
 }
 
 func (l *Layout) Len() int {
@@ -152,8 +156,8 @@ type RequestFocusMsg struct {
 }
 
 // focus sets the focused model in the layout.
-func (l *Layout) focus(n *node) tea.Cmd {
-	var cmds []tea.Cmd
+func (l *Layout) focus(n *node) widget.Action {
+	var cmds widget.Sequence
 	if l.focussed != nil {
 		cmds = append(cmds, l.focussed.Update(tea.BlurMsg{}))
 	}
@@ -163,11 +167,11 @@ func (l *Layout) focus(n *node) tea.Cmd {
 	if l.focussed != nil {
 		cmds = append(cmds, l.focussed.Update(tea.FocusMsg{}))
 	}
-	return tea.Sequence(cmds...)
+	return cmds
 }
 
 // focusNext focuses the next visible child.
-func (l *Layout) focusNext() tea.Cmd {
+func (l *Layout) focusNext() widget.Action {
 	if len(l.tree.children) == 0 {
 		return nil
 	}
@@ -183,7 +187,7 @@ func (l *Layout) focusNext() tea.Cmd {
 }
 
 // focusPrev focuses the previous visible child.
-func (l *Layout) focusPrev() tea.Cmd {
+func (l *Layout) focusPrev() widget.Action {
 	if len(l.tree.children) == 0 {
 		return nil
 	}
@@ -199,7 +203,7 @@ func (l *Layout) focusPrev() tea.Cmd {
 }
 
 // focusFirst focuses the last visible child.
-func (l *Layout) focusFirst() tea.Cmd {
+func (l *Layout) focusFirst() widget.Action {
 	if len(l.tree.children) == 0 {
 		return l.focus(nil)
 	}
@@ -207,29 +211,29 @@ func (l *Layout) focusFirst() tea.Cmd {
 }
 
 // Focused returns the currently focused model, or nil.
-func (l *Layout) Focused() tea.Model {
+func (l *Layout) Focused() *widget.Widget {
 	if l.focussed == nil {
 		return nil
 	}
-	return l.focussed.model
+	return l.focussed.widget
 }
 
-func (l *Layout) blurMsg() tea.Cmd {
-	if l.focussed == nil || l.focussed.model == nil {
+func (l *Layout) blurMsg() widget.Action {
+	if l.focussed == nil || l.focussed.widget == nil {
 		return nil
 	}
 	cmd := l.focussed.Update(tea.BlurMsg{})
 	return cmd
 }
 
-func (l *Layout) Dispatch(msg tea.Msg) (tea.Msg, tea.Cmd) {
-	var cmd tea.Cmd
+func (l *Layout) Dispatch(msg tea.Msg) (tea.Msg, widget.Action) {
+	var cmd widget.Action
 	switch msg := msg.(type) {
 	case displaySelfMsg:
-		_, cmd := l.AddChildren(msg.Priority, msg.Model)
+		_, cmd := l.AddChildren(msg.Priority, msg.Widget)
 		return nil, cmd
 	case hideSelfMsg:
-		cmd := l.RemoveChild(msg.Model)
+		cmd := l.RemoveChild(msg.Widget)
 		return nil, cmd
 	case RequestFocusNextMsg:
 		return nil, l.focusNext()
@@ -256,7 +260,7 @@ func (l *Layout) Dispatch(msg tea.Msg) (tea.Msg, tea.Cmd) {
 			return nil, tea.Quit
 		}
 		if l.focussed != nil {
-			l.focussed.model, cmd = l.focussed.model.Update(msg)
+			cmd = l.focussed.widget.Update(msg)
 			return nil, cmd
 		}
 	}

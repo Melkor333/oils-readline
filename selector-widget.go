@@ -3,19 +3,20 @@ package main
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/Melkor333/oils-readline/widget"
 )
 
 type CloseSelectorMsg struct{}
 
 type SelectorWidget struct {
 	choices []string
-	funcs   []func() tea.Cmd
+	funcs   []func() widget.Action
 	cursor  int
 	width   int
 	height  int
 }
 
-func newWidgetSelector(elems map[string]func() tea.Cmd) *SelectorWidget {
+func newWidgetSelector(elems map[string]func() widget.Action) *SelectorWidget {
 	w := &SelectorWidget{
 		cursor: 0,
 	}
@@ -26,11 +27,13 @@ func newWidgetSelector(elems map[string]func() tea.Cmd) *SelectorWidget {
 	return w
 }
 
-func (sw *SelectorWidget) Init() tea.Cmd {
+func (sw *SelectorWidget) Name() string { return "Selector Widget" }
+
+func (sw *SelectorWidget) Init() widget.Action {
 	return nil
 }
 
-func (sw *SelectorWidget) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (sw *SelectorWidget) Update(msg tea.Msg) (widget.Model, widget.Action) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
@@ -43,10 +46,10 @@ func (sw *SelectorWidget) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				sw.cursor++
 			}
 		case "enter", "space":
-			return sw, tea.Batch(
+			return sw, widget.Batch{
 				sw.funcs[sw.cursor](),
 				func() tea.Msg { return CloseSelectorMsg{} },
-			)
+			}
 		case "esc":
 			return sw, func() tea.Msg { return CloseSelectorMsg{} }
 		}

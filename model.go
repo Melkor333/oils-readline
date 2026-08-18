@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"reflect"
 
@@ -17,17 +19,26 @@ import (
 // RemoveSelfMsg is a message that a child model can return from its Update
 // function (via a command) to request its own removal from the parent tiling
 // Model.
-func widgets(m *model) map[string]func() tea.Cmd {
-	return map[string]func() tea.Cmd{
-		"SimplePrompt": func() tea.Cmd { return AddWidget(newBasicPrompt(m.shells[m.shellFocus])) },
-		"StdoutLog":    func() tea.Cmd { return AddWidget(newStdoutViewer()) },
-		"ErrorLog":     func() tea.Cmd { return AddWidget(newStderrViewer()) },
-		"Terminal":     func() tea.Cmd { return AddWidget(newTerminal()) },
+func widgets(m *model) map[string]func() widget.Action {
+	return map[string]func() widget.Action{
+		"SimplePrompt": func() widget.Action {
+			return AddWidget(&widget.Widget{newBasicPrompt(m.shells[m.shellFocus])})
+		},
+		"StdoutLog": func() widget.Action {
+			return AddWidget(&widget.Widget{newStdoutViewer()})
+		},
+		"ErrorLog": func() widget.Action {
+			return AddWidget(&widget.Widget{newStderrViewer()})
+		},
+		"Terminal": func() widget.Action {
+			return AddWidget(&widget.Widget{newTerminal()})
+		},
 	}
 }
 
-func RemoveSelf() tea.Cmd {
-	return func() tea.Msg { return RemoveSelfMsg{} }
+func RemoveSelf() widget.Action {
+	slog.Debug("Requesting to remove a widget!")
+	return RemoveSelfMsg{}
 }
 
 type RemoveSelfMsg struct{ w *widget.Widget }
@@ -68,10 +79,10 @@ type model struct {
 	captureWidget *widget.Widget // index of widget capturing all keys, -1 = none
 }
 
-func NewModel(shells []shell.Shell, children []tea.Model) *model {
+func NewModel(shells []shell.Shell, children []widget.Model) *model {
 	entries := make([]*widget.Widget, len(children))
 	s := make([]trackedShell, len(shells))
-	layout := tiling.New()
+	layout := tiling.New(200, 200)
 	for i, c := range children {
 		w := &widget.Widget{Model: c}
 		entries[i] = w
@@ -92,21 +103,21 @@ func NewModel(shells []shell.Shell, children []tea.Model) *model {
 
 // addWidget appends a child model to the widget list (but not the layout).
 // It returns the child's Init command.
-func (m *model) addWidget(w *widget.Widget, msgs []tea.Msg) tea.Cmd {
-	var cmds []tea.Cmd
+func (m *model) addWidget(w *widget.Widget, msgs []tea.Msg) widget.Action {
+	var cmds []widget.Action
 	m.widgets = append(m.widgets, w)
 	// TODO: Should the model itself care about the init, or is init dependant of it being added to the model?
 	cmds = append(cmds, w.Init())
 	for _, msg := range msgs {
-		_, msg := w.Update(msg)
+		msg := w.Update(msg)
 		cmds = append(cmds, msg)
 	}
-	return tea.Batch(cmds...)
+	return widget.Batch(cmds)
 }
 
 // AddChild appends a child model to the end of the widget list and the layout.
 // It returns the child's Init command.
-func (m *model) AddChild(child tea.Model) tea.Cmd {
+func (m *model) AddChild(child widget.Model) widget.Action {
 	w := &widget.Widget{child}
 	m.widgets = append(m.widgets, w)
 
@@ -139,7 +150,7 @@ func (m *model) AddShell(shell shell.Shell) tea.Cmd {
 	}
 }
 
-func (m *model) RemoveChild(w *widget.Widget) tea.Cmd {
+func (m *model) RemoveChild(w *widget.Widget) widget.Action {
 	if m.captureWidget == w {
 		m.captureWidget = nil
 	}
@@ -151,11 +162,11 @@ func (m *model) RemoveChild(w *widget.Widget) tea.Cmd {
 	// TODO: Should it be removed from the layout? Or are these two separate things?
 	// A widget should probably remove itself when it's hidden
 	// (TODO: being hidden/displayed should spawn a message to the widget? And then it removes itself... Do we want to make it that hard for widgets?)
-	return tea.Batch(m.layout.RemoveChild(w), m.recalculateSizes())
+	return widget.Batch{m.layout.RemoveChild(w), m.recalculateSizes()}
 }
 
 func (m *model) Init() tea.Cmd {
-	var cmds []tea.Cmd
+	var actions widget.Sequence
 	var shellCmds []tea.Cmd
 
 	for _, shell := range m.shells {
@@ -168,14 +179,10 @@ func (m *model) Init() tea.Cmd {
 
 	for r, w := range m.widgets {
 		log.Printf("Initiating %v %v", r, w)
-		cmds = append(cmds, w.Init())
+		actions = append(actions, w.Init())
 	}
-	cmds = append(cmds,
-		func() tea.Msg { log.Print("request focus"); return tiling.RequestFocusMainMsg{} },
-	)
-
-	// Focus the first widget after init
-	return tea.Batch(tea.Batch(shellCmds...), tea.Sequence(cmds...))
+	actions = append(actions, tiling.RequestFocusMainMsg{})
+	return tea.Batch(tea.Batch(shellCmds...), m.update(actions))
 }
 
 func (m *model) recalculateSizes() tea.Cmd {
@@ -218,6 +225,42 @@ func (m *model) View() tea.View {
 	return v
 }
 
+func (m *model) update(action widget.Action) tea.Cmd {
+	for {
+		if action == nil {
+			return nil
+		}
+		slog.Debug("model manages action", "action", fmt.Sprintf("%T", action))
+		if sequence, ok := action.(widget.Sequence); ok {
+			slog.Debug("captured Sequence")
+			var cmds []tea.Cmd
+			for _, _action := range sequence {
+				cmds = append(cmds, m.update(_action))
+			}
+			// TODO: don't just run each action, but each action & it's cmds in order?
+			return tea.Sequence(cmds...)
+		}
+		if batch, ok := action.(widget.Batch); ok {
+			slog.Debug("captured Batch")
+			var cmds []tea.Cmd
+			for _, _action := range batch {
+				cmds = append(cmds, m.update(_action))
+			}
+			return tea.Batch(cmds...)
+		}
+		if cmd, ok := action.(tea.Cmd); ok {
+			slog.Debug("captured cmd")
+			return cmd
+		}
+		// If the func is only ever treated as `tea.Msg` it lands here.
+		if cmd, ok := action.(func() tea.Msg); ok {
+			slog.Debug("captured untyped cmd")
+			return cmd
+		}
+		_, action = m.Update(tea.Msg(action))
+	}
+}
+
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	log.Print(reflect.TypeOf(msg), msg)
@@ -229,7 +272,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if c, ok := newSel.(*SelectorWidget); ok {
 				m.selector = c
 			}
-			return m, cmd
+			return m, m.update(cmd)
 		}
 	}
 
@@ -238,27 +281,27 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg := msg.(type) {
 		case tea.KeyPressMsg:
 			log.Printf("Send capture to widget")
-			_, cmd := m.captureWidget.Update(msg)
-			return m, cmd
+			cmd := m.captureWidget.Update(msg)
+			return m, m.update(cmd)
 		}
 	}
 
 	// TODO: This means as long as a targetedCmd runs, the widget will still exist, even when deleted from the view?!
 	// Maybe we need a way to ensure a deleted widget is not being updated anymore? :thinking:
 	if tmsg, ok := msg.(TargetedMsg); ok {
-		_, cmd := tmsg.TargetWidget().Update(msg)
-		return m, cmd
+		cmd := tmsg.TargetWidget().Update(msg)
+		return m, m.update(cmd)
 	}
 
 	msg, cmd = m.history.Dispatch(msg)
 	if msg == nil {
-		return m, cmd
+		return m, m.update(cmd)
 	}
 
 	// in case history/layout changed the msg.
 	if tmsg, ok := msg.(TargetedMsg); ok {
-		_, cmd := tmsg.TargetWidget().Update(msg)
-		return m, cmd
+		cmd := tmsg.TargetWidget().Update(msg)
+		return m, m.update(cmd)
 	}
 
 	switch msg := msg.(type) {
@@ -277,7 +320,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selector = newWidgetSelector(widgets(m))
 			m.selector.width = m.Width
 			m.selector.height = m.Height
-			return m, m.selector.Init()
+			return m, m.update(m.selector.Init())
 		}
 
 	case CloseSelectorMsg:
@@ -287,12 +330,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case addWidgetMsg:
 		log.Print("requested widget!")
-		w := &widget.Widget{Model: msg.Model}
-		return m, m.addWidget(w, msg.Msgs)
+		return m, m.update(m.addWidget(msg.Widget, msg.Msgs))
 
 	case removeWidgetMsg:
-		m.RemoveChild(msg.w)
-		return m, nil
+		return m, m.update(m.RemoveChild(msg.w))
 
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
@@ -334,22 +375,21 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// TODO: This means as long as a targetedCmd runs, the widget will still exist, even when deleted from the view?!
 	// Maybe we need a way to ensure a deleted widget is not being updated anymore? :thinking:
 	if tmsg, ok := msg.(TargetedMsg); ok {
-		_, cmd := tmsg.TargetWidget().Update(msg)
-		return m, cmd
+		action := tmsg.TargetWidget().Update(msg)
+		return m, m.update(action)
 	}
 
 	// almost exclusively handles keypressmsg
-	msg, cmd2 := m.layout.Dispatch(msg)
-	cmd = tea.Batch(cmd, cmd2)
+	msg, action := m.layout.Dispatch(msg)
+	_cmd := m.update(action)
+	cmd = tea.Batch(cmd, _cmd)
 	if msg == nil {
 		return m, cmd
 	}
 
 	var cmds []tea.Cmd
 	for _, child := range m.widgets {
-		_, cmd := child.Update(msg)
-		log.Print(reflect.TypeOf(cmd), cmd)
-		cmds = append(cmds, cmd)
+		cmds = append(cmds, m.update(child.Update(msg)))
 	}
 	return m, tea.Batch(cmds...)
 }

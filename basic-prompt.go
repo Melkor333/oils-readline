@@ -11,6 +11,7 @@ import (
 
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/Melkor333/oils-readline/tiling"
+	"github.com/Melkor333/oils-readline/widget"
 )
 
 var (
@@ -42,11 +43,13 @@ func newBasicPrompt(s shell.Shell) *basicPrompt {
 	}
 }
 
-func (bp *basicPrompt) Init() tea.Cmd {
+func (bp *basicPrompt) Name() string { return "basic prompt" }
+
+func (bp *basicPrompt) Init() widget.Action {
 	return tiling.DisplaySelf(10)
 }
 
-func (bp *basicPrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (bp *basicPrompt) Update(msg tea.Msg) (widget.Model, widget.Action) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		// don't handle keyboard inputs if we're not focussed!

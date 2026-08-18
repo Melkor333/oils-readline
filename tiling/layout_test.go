@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/Melkor333/oils-readline/widget"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -13,9 +14,10 @@ type coord struct {
 
 type M struct{ string }
 
-func (M) Init() tea.Cmd                         { return nil }
-func (m M) Update(tea.Msg) (tea.Model, tea.Cmd) { return m, nil }
-func (m M) View() tea.View                      { return tea.NewView(m.string) }
+func (M) Name() string                                   { return "TEST M" }
+func (M) Init() widget.Action                            { return nil }
+func (m M) Update(tea.Msg) (widget.Model, widget.Action) { return m, nil }
+func (m M) View() tea.View                               { return tea.NewView(m.string) }
 
 func TestPosition(t *testing.T) {
 	tests := []struct {
@@ -53,7 +55,7 @@ func TestPosition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			n := newNode(nil, tt.f)
 			for _, c := range tt.n {
-				n.addChild(M{c}, 0)
+				n.addChild(&widget.Widget{M{c}}, 0)
 			}
 			n.position(tt.rect)
 			for c, _child := range n.children {
