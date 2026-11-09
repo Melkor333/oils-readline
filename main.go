@@ -92,13 +92,14 @@ func main() {
 		log.SetOutput(io.Discard)
 	}
 
+	reg := widget.NewRegistry()
+	reg.RegisterGlobal(func(s shell.Shell) widget.Model { return newBasicPrompt(s) })
+	reg.RegisterCommand(func(cmd shell.Command) widget.Model { return NewStdoutViewer(cmd) })
+	reg.RegisterCommand(func(cmd shell.Command) widget.Model { return NewStderrViewer(cmd) })
+
 	model := NewModel(
 		[]shell.Shell{s},
-		[]widget.Model{
-			newBasicPrompt(s),
-			NewStdoutFactory(s),
-			NewStderrFactory(s),
-		},
+		reg,
 	)
 	defer model.Cancel()
 

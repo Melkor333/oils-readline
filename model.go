@@ -62,7 +62,8 @@ type model struct {
 	shellFocus  int
 	nextShellID uint64
 
-	widgets []*widget.Widget
+	widgets  []*widget.Widget
+	registry *widget.Registry
 
 	history *history.History
 
@@ -79,14 +80,9 @@ type model struct {
 	captureWidget *widget.Widget // index of widget capturing all keys, -1 = none
 }
 
-func NewModel(shells []shell.Shell, children []widget.Model) *model {
-	entries := make([]*widget.Widget, len(children))
+func NewModel(shells []shell.Shell, registry *widget.Registry) *model {
 	s := make([]trackedShell, len(shells))
 	layout := tiling.New(200, 200)
-	for i, c := range children {
-		w := &widget.Widget{Model: c}
-		entries[i] = w
-	}
 	for i, shell := range shells {
 		s[i] = trackedShell{shell, uint64(i)}
 	}
@@ -94,9 +90,16 @@ func NewModel(shells []shell.Shell, children []widget.Model) *model {
 		shells:        s,
 		nextShellID:   uint64(len(shells)),
 		layout:        layout,
-		widgets:       entries,
+		registry:      registry,
 		captureWidget: nil,
 		history:       &history.History{},
+	}
+	if registry != nil {
+		for _, sh := range s {
+			for _, g := range registry.CreateGlobals(sh.Shell) {
+				m.widgets = append(m.widgets, &widget.Widget{Model: g})
+			}
+		}
 	}
 	return m
 }
@@ -177,8 +180,8 @@ func (m *model) Init() tea.Cmd {
 			})
 	}
 
-	for r, w := range m.widgets {
-		log.Printf("Initiating %v %v", r, w)
+	for _, w := range m.widgets {
+		log.Printf("Initiating widget: %v", w.Name())
 		actions = append(actions, w.Init())
 	}
 	actions = append(actions, tiling.RequestFocusMainMsg{})
@@ -362,8 +365,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.history.Add(cmd)
 
+		var addCmds widget.Batch
+		for _, cw := range m.registry.CreateForCommand(cmd) {
+			addCmds = append(addCmds, m.addWidget(&widget.Widget{Model: cw}, []tea.Msg{shell.CommandMsg{Cmd: cmd}}))
+		}
+
 		log.Print("Running command")
 		return m, tea.Sequence(
+			m.update(addCmds),
 			func() tea.Msg { return shell.CommandMsg{Cmd: cmd} },
 			func() tea.Msg { cmd.Run(); return shell.CommandDoneMsg{Cmd: cmd} },
 		)

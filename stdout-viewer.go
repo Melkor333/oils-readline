@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"slices"
 
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
@@ -29,6 +28,7 @@ type StdoutViewer struct {
 	Width           int
 	Height          int
 	temporary       bool
+	displayed       bool
 }
 
 func (s *StdoutViewer) Name() string {
@@ -38,53 +38,33 @@ func (s *StdoutViewer) Name() string {
 	return "Stdout Viewer"
 }
 
-type StdoutViewerFactory struct {
-	shell           shell.Shell
-	handledCommands []shell.Command
-	stderr          bool
-}
-
-func NewStdoutFactory(s shell.Shell) *StdoutViewerFactory {
-	return &StdoutViewerFactory{shell: s}
-}
-
-func NewStderrFactory(s shell.Shell) *StdoutViewerFactory {
-	return &StdoutViewerFactory{shell: s, stderr: true}
-}
-
-func (f *StdoutViewerFactory) Name() string {
-	return "StdoutViewer Factory"
-}
-
-func (f *StdoutViewerFactory) Init() widget.Action {
-	return nil
-}
-
-func (f *StdoutViewerFactory) Update(msg tea.Msg) (widget.Model, widget.Action) {
-	return f, func() tea.Msg {
-		if m, ok := msg.(shell.StdoutMsg); ok && !f.stderr && !slices.Contains(f.handledCommands, m.Cmd) {
-			f.handledCommands = append(f.handledCommands, m.Cmd)
-			if hasNonColorEscape(m.Cmd.Stdout()) {
-				return nil
-			}
-			v := newStdoutViewer()
-			v.temporary = true
-			slog.Debug("returning StdoutViewer")
-			return AddWidget(&widget.Widget{v}, shell.CommandMsg(m))
-		}
-		if m, ok := msg.(shell.StderrMsg); ok && f.stderr && !slices.Contains(f.handledCommands, m.Cmd) {
-			f.handledCommands = append(f.handledCommands, m.Cmd)
-			v := newStderrViewer()
-			v.temporary = true
-			return AddWidget(&widget.Widget{v}, shell.CommandMsg(m))
-		}
-		return nil
+func NewStdoutViewer(cmd shell.Command) *StdoutViewer {
+	return &StdoutViewer{
+		command:        cmd,
+		targetIndex:    -1,
+		currentIndex:   -1,
+		exitMenuSelect: menuSelectHidden,
+		temporary:      true,
 	}
-
 }
 
-func (f *StdoutViewerFactory) View() tea.View {
-	return tea.NewView("")
+func NewStderrViewer(cmd shell.Command) *StdoutViewer {
+	return &StdoutViewer{
+		command:        cmd,
+		targetIndex:    -1,
+		currentIndex:   -1,
+		showStderr:     true,
+		exitMenuSelect: menuSelectHidden,
+		temporary:      true,
+	}
+}
+
+func newStdoutViewer() *StdoutViewer {
+	return &StdoutViewer{targetIndex: -1, currentIndex: -1, exitMenuSelect: menuSelectHidden}
+}
+
+func newStderrViewer() *StdoutViewer {
+	return &StdoutViewer{targetIndex: -1, currentIndex: -1, showStderr: true, exitMenuSelect: menuSelectHidden}
 }
 
 func (h *StdoutViewer) commandRunning() bool {
@@ -106,15 +86,20 @@ const (
 	menuSelectCancel
 )
 
-func newStdoutViewer() *StdoutViewer {
-	return &StdoutViewer{targetIndex: -1, currentIndex: -1, exitMenuSelect: menuSelectHidden}
-}
 
-func newStderrViewer() *StdoutViewer {
-	return &StdoutViewer{targetIndex: -1, currentIndex: -1, showStderr: true, exitMenuSelect: menuSelectHidden}
-}
 
 func (h *StdoutViewer) Init() widget.Action {
+	if !h.temporary {
+		return tiling.DisplaySelf(100)
+	}
+	return nil
+}
+
+func (h *StdoutViewer) maybeDisplay() widget.Action {
+	if h.displayed {
+		return nil
+	}
+	h.displayed = true
 	return tiling.DisplaySelf(100)
 }
 
@@ -240,7 +225,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (widget.Model, widget.Action) {
 			return h, nil
 		}
 
-		if h.temporary && h.command != nil {
+		if h.temporary && h.command != nil && h.command != msg.Cmd {
 			return h, widget.Batch{
 				RemoveSelf(),
 				tiling.HideSelf(),
@@ -311,10 +296,14 @@ func (h *StdoutViewer) Update(msg tea.Msg) (widget.Model, widget.Action) {
 		}
 		slog.Debug("Stdout output received:")
 		if h.currentIndex < 0 && h.command == msg.Cmd {
-			h.updateContent()
-			if h.temporary && hasNonColorEscape(h.View().Content) {
-				return h, func() tea.Msg { return RemoveSelfMsg{} }
+			if h.temporary && hasNonColorEscape(msg.Cmd.Stdout()) {
+				return h, widget.Batch{
+					RemoveSelf(),
+					tiling.HideSelf(),
+				}
 			}
+			h.updateContent()
+			return h, h.maybeDisplay()
 		}
 		slog.Debug("got shell content", "content", h.view.GetContent())
 		return h, nil
@@ -329,6 +318,7 @@ func (h *StdoutViewer) Update(msg tea.Msg) (widget.Model, widget.Action) {
 			if h.temporary && hasNonColorEscape(h.View().Content) {
 				return h, func() tea.Msg { return RemoveSelfMsg{} }
 			}
+			return h, h.maybeDisplay()
 		}
 		return h, nil
 	}

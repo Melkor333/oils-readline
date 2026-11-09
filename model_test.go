@@ -132,15 +132,16 @@ func (m *removableModel) View() tea.View {
 type triggerRemoveMsg struct{}
 
 func TestChildSelfRemove(t *testing.T) {
-	m := NewModel(S, []widget.Model{
-		newBlock("A", "5"),
-		newRemovable("B"),
-		newBlock("C", "7"),
-	})
-	m2 := NewModel(S, []widget.Model{
-		newBlock("A", "5"),
-		newBlock("C", "7"),
-	})
+	reg := widget.NewRegistry()
+	reg.RegisterGlobal(func(s shell.Shell) widget.Model { return newBlock("A", "5") })
+	reg.RegisterGlobal(func(s shell.Shell) widget.Model { return newRemovable("B") })
+	reg.RegisterGlobal(func(s shell.Shell) widget.Model { return newBlock("C", "7") })
+	m := NewModel(S, reg)
+
+	reg2 := widget.NewRegistry()
+	reg2.RegisterGlobal(func(s shell.Shell) widget.Model { return newBlock("A", "5") })
+	reg2.RegisterGlobal(func(s shell.Shell) widget.Model { return newBlock("C", "7") })
+	m2 := NewModel(S, reg2)
 
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m2.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -156,7 +157,9 @@ func TestChildSelfRemove(t *testing.T) {
 }
 
 func TestAddRemoveChild(t *testing.T) {
-	m := NewModel(S, []widget.Model{newBlock("A", "5")})
+	reg := widget.NewRegistry()
+	reg.RegisterGlobal(func(s shell.Shell) widget.Model { return newBlock("A", "5") })
+	m := NewModel(S, reg)
 	m.layout.Split(tiling.SplitVertical)
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -177,7 +180,9 @@ func TestAddRemoveChild(t *testing.T) {
 		t.Fatalf("expected 1 child, got %d", len(m.widgets))
 	}
 
-	fresh := NewModel(S, []widget.Model{newBlock("B", "6")})
+	freshReg := widget.NewRegistry()
+	freshReg.RegisterGlobal(func(s shell.Shell) widget.Model { return newBlock("B", "6") })
+	fresh := NewModel(S, freshReg)
 	fresh.layout.Split(tiling.SplitVertical)
 	updated2, _ := fresh.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	fresh = updated2.(*model)
@@ -244,12 +249,13 @@ func TestPropertyAddRemoveChildren(t *testing.T) {
 	}
 }
 
-func makeModels(labels []string) []widget.Model {
-	models := make([]widget.Model, len(labels))
-	for i, l := range labels {
-		models[i] = newBlock(l, "5")
+func makeModels(labels []string) *widget.Registry {
+	reg := widget.NewRegistry()
+	for _, l := range labels {
+		label := l
+		reg.RegisterGlobal(func(s shell.Shell) widget.Model { return newBlock(label, "5") })
 	}
-	return models
+	return reg
 }
 
 // captureMockModel implements KeySink to capture all keypresses and print them.
@@ -289,7 +295,9 @@ func (m *captureMockModel) View() tea.View {
 }
 
 func TestKeyCapture(t *testing.T) {
-	m := NewModel(S, []widget.Model{newCaptureMock()})
+	reg := widget.NewRegistry()
+	reg.RegisterGlobal(func(s shell.Shell) widget.Model { return newCaptureMock() })
+	m := NewModel(S, reg)
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
 
@@ -331,7 +339,7 @@ func TestKeyCapture(t *testing.T) {
 }
 
 func TestTeaAddAndRemoveBlock(t *testing.T) {
-	m := NewModel(S, nil)
+	m := NewModel(S, widget.NewRegistry())
 	m.AddChild(newBlock("A", "5"))
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
