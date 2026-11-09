@@ -282,6 +282,8 @@ func (h *Terminal) updateContent() {
 	}
 	output := h.command.Stdout()
 
-	h.term.Write([]byte(output[h.position:]))
-	h.position = len(output)
+	if len(output) > h.position {
+		h.term.Write([]byte(output[h.position:]))
+		h.position = len(output)
+	}
 }
