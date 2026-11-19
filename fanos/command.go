@@ -37,6 +37,10 @@ func (c *Command) CommandLine() string {
 	return c.commandline
 }
 
+func (c *Command) Shell() shell.Shell {
+	return c.shell
+}
+
 func (c *Command) Stdin() io.Writer {
 	return c.stdin
 }

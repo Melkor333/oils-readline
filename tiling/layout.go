@@ -9,14 +9,15 @@ import (
 	"github.com/Melkor333/oils-readline/widget"
 )
 
-// displaySelfMsg is sent by a widget (or on its behalf) to add itself to the
-// layout.
-type displaySelfMsg struct {
+// DisplaySelfMsg is sent by a widget (or on its behalf) to add itself to the
+// layout. It is exported so the parent model can intercept the first display
+// of a per-command widget group.
+type DisplaySelfMsg struct {
 	Widget   *widget.Widget
 	Priority int
 }
 
-func (msg displaySelfMsg) Tag(w *widget.Widget) tea.Msg {
+func (msg DisplaySelfMsg) Tag(w *widget.Widget) tea.Msg {
 	msg.Widget = w
 	return msg
 }
@@ -24,7 +25,7 @@ func (msg displaySelfMsg) Tag(w *widget.Widget) tea.Msg {
 // DisplaySelf returns a command that requests the given model be made visible in the layout.
 // priority determines the order (lower = first).
 func DisplaySelf(priority int) widget.Action {
-	return displaySelfMsg{Widget: nil, Priority: priority}
+	return DisplaySelfMsg{Widget: nil, Priority: priority}
 }
 
 // HideSelf returns a command that requests the given model be removed from the layout.
@@ -229,7 +230,7 @@ func (l *Layout) blurMsg() widget.Action {
 func (l *Layout) Dispatch(msg tea.Msg) (tea.Msg, widget.Action) {
 	var cmd widget.Action
 	switch msg := msg.(type) {
-	case displaySelfMsg:
+	case DisplaySelfMsg:
 		_, cmd := l.AddChildren(msg.Priority, msg.Widget)
 		return nil, cmd
 	case hideSelfMsg:

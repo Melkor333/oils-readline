@@ -7,18 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// RemoveSelfMsg is a message that a child model can return from its Update
-// function (via a command) to request its own removal from the parent tiling
-// Model.
-//func widgets(m *model) map[string]func() tea.Cmd {
-//	return map[string]func() tea.Cmd{
-//		"SimplePrompt": func() tea.Cmd { return m.AddChild(newBasicPrompt(m.shells[m.shellFocus])) },
-//		"StdoutLog":    func() tea.Cmd { return m.AddChild(newStdoutViewer()) },
-//		"ErrorLog":     func() tea.Cmd { return m.AddChild(newStderrViewer()) },
-//		"Terminal":     func() tea.Cmd { return m.AddChild(newTerminal()) },
-//	}
-//}
-
 type WidgetOption func(Widget) (Widget, error)
 type DispatchFunc func(Widget, tea.Msg) (Widget, tea.Cmd)
 type StopProcessingMsg struct{}
@@ -41,6 +29,14 @@ type Model interface {
 	View() tea.View
 	Update(tea.Msg) (Model, Action)
 	Name() string
+}
+
+// Teardownable is an optional interface a Model can implement to release
+// resources (goroutines, file handles) when the parent removes it. Teardown
+// is called synchronously; whatever Action it returns is batched by the
+// caller and may be executed asynchronously.
+type Teardownable interface {
+	Teardown() Action
 }
 
 type Widget struct{ Model }

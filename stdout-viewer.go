@@ -11,7 +11,6 @@ import (
 	"github.com/creack/pty"
 	"github.com/muesli/reflow/wrap"
 
-	"github.com/Melkor333/oils-readline/history"
 	"github.com/Melkor333/oils-readline/shell"
 	"github.com/Melkor333/oils-readline/tiling"
 	"github.com/Melkor333/oils-readline/widget"
@@ -20,15 +19,13 @@ import (
 type StdoutViewer struct {
 	command         shell.Command
 	view            viewport.Model
-	targetIndex     int
-	currentIndex    int
 	showStderr      bool
 	interactiveMode bool
 	exitMenuSelect  menuSelection
 	Width           int
 	Height          int
-	temporary       bool
 	displayed       bool
+	hidden          bool
 }
 
 func (s *StdoutViewer) Name() string {
@@ -41,30 +38,24 @@ func (s *StdoutViewer) Name() string {
 func NewStdoutViewer(cmd shell.Command) *StdoutViewer {
 	return &StdoutViewer{
 		command:        cmd,
-		targetIndex:    -1,
-		currentIndex:   -1,
 		exitMenuSelect: menuSelectHidden,
-		temporary:      true,
 	}
 }
 
 func NewStderrViewer(cmd shell.Command) *StdoutViewer {
 	return &StdoutViewer{
 		command:        cmd,
-		targetIndex:    -1,
-		currentIndex:   -1,
 		showStderr:     true,
 		exitMenuSelect: menuSelectHidden,
-		temporary:      true,
 	}
 }
 
 func newStdoutViewer() *StdoutViewer {
-	return &StdoutViewer{targetIndex: -1, currentIndex: -1, exitMenuSelect: menuSelectHidden}
+	return &StdoutViewer{exitMenuSelect: menuSelectHidden}
 }
 
 func newStderrViewer() *StdoutViewer {
-	return &StdoutViewer{targetIndex: -1, currentIndex: -1, showStderr: true, exitMenuSelect: menuSelectHidden}
+	return &StdoutViewer{showStderr: true, exitMenuSelect: menuSelectHidden}
 }
 
 func (h *StdoutViewer) commandRunning() bool {
@@ -86,12 +77,7 @@ const (
 	menuSelectCancel
 )
 
-
-
 func (h *StdoutViewer) Init() widget.Action {
-	if !h.temporary {
-		return tiling.DisplaySelf(100)
-	}
 	return nil
 }
 
@@ -112,12 +98,6 @@ func (h *StdoutViewer) WriteStdin(b []byte) (int, error) {
 
 func (h *StdoutViewer) IsInteractive() bool {
 	return h.interactiveMode
-}
-
-func (h *StdoutViewer) requestHistoryEntry(index int) widget.Action {
-	return func() tea.Msg {
-		return history.RequestHistoryEntryMsg{Index: index}
-	}
 }
 
 func (h *StdoutViewer) Update(msg tea.Msg) (widget.Model, widget.Action) {
@@ -192,25 +172,6 @@ func (h *StdoutViewer) Update(msg tea.Msg) (widget.Model, widget.Action) {
 				}
 				return h, RequestCapture()
 			}
-		case "h":
-			if h.targetIndex >= 0 {
-				h.targetIndex -= 1
-				return h, h.requestHistoryEntry(h.targetIndex)
-			}
-			return h, h.requestHistoryEntry(h.currentIndex - 1)
-		case "l":
-			if h.targetIndex >= 0 {
-				h.targetIndex += 1
-				return h, h.requestHistoryEntry(h.targetIndex)
-			}
-			return h, h.requestHistoryEntry(h.currentIndex + 1)
-		case "s":
-			if h.targetIndex == -1 {
-				h.targetIndex = h.currentIndex
-			} else {
-				h.targetIndex = -1
-			}
-			return h, nil
 		case "e":
 			h.showStderr = !h.showStderr
 			h.updateContent()
@@ -221,33 +182,15 @@ func (h *StdoutViewer) Update(msg tea.Msg) (widget.Model, widget.Action) {
 			return h, cmd
 		}
 	case shell.CommandMsg:
-		if h.targetIndex != -1 {
-			return h, nil
-		}
-
-		if h.temporary && h.command != nil && h.command != msg.Cmd {
-			return h, widget.Batch{
-				RemoveSelf(),
-				tiling.HideSelf(),
-			}
-		}
-
 		h.interactiveMode = false
 		h.exitMenuSelect = menuSelectHidden
-		if h.targetIndex < 0 {
-			h.command = msg.Cmd
-			h.currentIndex = -1
-			h.view = viewport.New(
-				viewport.WithWidth(h.Width),
-				viewport.WithHeight(max(0, h.Height-1)),
-			)
-			h.view.FillHeight = false
-			h.updateContent()
-		}
-
-		if h.temporary {
-			return h, nil
-		}
+		h.command = msg.Cmd
+		h.view = viewport.New(
+			viewport.WithWidth(h.Width),
+			viewport.WithHeight(max(0, h.Height-1)),
+		)
+		h.view.FillHeight = false
+		h.updateContent()
 
 		return h, ReleaseCapture()
 
@@ -257,25 +200,6 @@ func (h *StdoutViewer) Update(msg tea.Msg) (widget.Model, widget.Action) {
 			h.exitMenuSelect = menuSelectHidden
 		}
 		return h, ReleaseCapture()
-
-	case history.HistoryEntryMsg:
-		slog.Debug("New Command", "index", msg.Index, "msg", msg)
-		if h.targetIndex > msg.Total {
-			h.targetIndex = msg.Total
-			if msg.Total == msg.Index+1 {
-				h.currentIndex = msg.Index
-				h.command = msg.Cmd
-				h.updateContent()
-			}
-			return h, nil
-		}
-		if h.targetIndex == msg.Index || h.targetIndex < 0 {
-			h.currentIndex = msg.Index
-			h.command = msg.Cmd
-			h.updateContent()
-		}
-		slog.Debug("HistoryEntry!", "current", h.currentIndex, "target", h.targetIndex)
-		return h, nil
 
 	case tea.WindowSizeMsg:
 		h.Width = msg.Width
@@ -291,36 +215,34 @@ func (h *StdoutViewer) Update(msg tea.Msg) (widget.Model, widget.Action) {
 		return h, nil
 
 	case shell.StdoutMsg:
-		if h.showStderr {
+		if h.showStderr || h.command != msg.Cmd {
 			return h, nil
 		}
 		slog.Debug("Stdout output received:")
-		if h.currentIndex < 0 && h.command == msg.Cmd {
-			if h.temporary && hasNonColorEscape(msg.Cmd.Stdout()) {
-				return h, widget.Batch{
-					RemoveSelf(),
-					tiling.HideSelf(),
-				}
-			}
-			h.updateContent()
-			return h, h.maybeDisplay()
+		if !h.hidden && hasNonColorEscape(msg.Cmd.Stdout()) {
+			h.hidden = true
+			return h, tiling.HideSelf()
 		}
-		slog.Debug("got shell content", "content", h.view.GetContent())
-		return h, nil
+		h.updateContent()
+		if h.hidden {
+			return h, nil
+		}
+		return h, h.maybeDisplay()
 
 	case shell.StderrMsg:
-		if !h.showStderr {
+		if !h.showStderr || h.command != msg.Cmd {
 			return h, nil
 		}
 		slog.Debug("Stderr output received")
-		if h.currentIndex < 0 && h.command == msg.Cmd {
-			h.updateContent()
-			if h.temporary && hasNonColorEscape(h.View().Content) {
-				return h, func() tea.Msg { return RemoveSelfMsg{} }
-			}
-			return h, h.maybeDisplay()
+		h.updateContent()
+		if !h.hidden && hasNonColorEscape(h.View().Content) {
+			h.hidden = true
+			return h, tiling.HideSelf()
 		}
-		return h, nil
+		if h.hidden {
+			return h, nil
+		}
+		return h, h.maybeDisplay()
 	}
 
 	return h, nil
@@ -363,14 +285,6 @@ func (h *StdoutViewer) View() tea.View {
 		cmdLine = cmdLine + " " + highlightColor.Render("[interactive]")
 	}
 
-	sticky := inactiveColor
-	if h.targetIndex != h.currentIndex || h.targetIndex < 0 {
-		sticky = activeColor
-	}
-	if h.currentIndex >= 0 {
-		i := sticky.Render(fmt.Sprintf("[%d]", h.currentIndex))
-		return tea.NewView(fmt.Sprintf("%v %s\n%s", i, cmdLine, h.view.View()))
-	}
 	return tea.NewView(cmdLine + "\n" + h.view.View())
 }
 

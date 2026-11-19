@@ -16,36 +16,24 @@ import (
 	"github.com/creack/pty"
 )
 
-// RemoveSelfMsg is a message that a child model can return from its Update
-// function (via a command) to request its own removal from the parent tiling
-// Model.
 func widgets(m *model) map[string]func() widget.Action {
 	return map[string]func() widget.Action{
 		"SimplePrompt": func() widget.Action {
-			return AddWidget(&widget.Widget{newBasicPrompt(m.shells[m.shellFocus])})
+			return AddWidget(&widget.Widget{Model: newBasicPrompt(m.shells[m.shellFocus].Shell)})
 		},
 		"StdoutLog": func() widget.Action {
-			return AddWidget(&widget.Widget{newStdoutViewer()})
+			return AddWidget(&widget.Widget{Model: newStdoutViewer()})
 		},
 		"ErrorLog": func() widget.Action {
-			return AddWidget(&widget.Widget{newStderrViewer()})
+			return AddWidget(&widget.Widget{Model: newStderrViewer()})
 		},
 		"Terminal": func() widget.Action {
-			return AddWidget(&widget.Widget{newTerminal()})
+			return AddWidget(&widget.Widget{Model: newTerminal()})
 		},
 	}
 }
 
-func RemoveSelf() widget.Action {
-	slog.Debug("Requesting to remove a widget!")
-	return RemoveSelfMsg{}
-}
-
-type RemoveSelfMsg struct{ w *widget.Widget }
 type removeWidgetMsg struct{ w *widget.Widget }
-
-func (msg RemoveSelfMsg) TargetedMsg() *widget.Widget  { return msg.w }
-func (msg RemoveSelfMsg) Tag(t *widget.Widget) tea.Msg { msg.w = t; return msg }
 
 // removeChildMsg is an internal message to remove a child by its unique ID.
 type removeShellMsg struct {
@@ -65,6 +53,11 @@ type model struct {
 	widgets  []*widget.Widget
 	registry *widget.Registry
 
+	// commandWidgets indexes the widgets spawned per command (the
+	// per-command, ephemeral scope). The flat widgets slice remains the
+	// runtime truth for dispatch and rendering.
+	commandWidgets map[shell.Command]*commandGroup
+
 	history *history.History
 
 	layout *tiling.Layout
@@ -78,6 +71,17 @@ type model struct {
 	selecting     bool
 	selector      *SelectorWidget
 	captureWidget *widget.Widget // index of widget capturing all keys, -1 = none
+
+	groupSeq int // spawn order counter for command groups
+}
+
+// commandGroup is the set of widgets spawned for one command, plus the
+// flag marking that the group has displayed itself at least once (which
+// triggers the lazy teardown of older groups of the same shell).
+type commandGroup struct {
+	widgets   []*widget.Widget
+	displayed bool
+	seq       int
 }
 
 func NewModel(shells []shell.Shell, registry *widget.Registry) *model {
@@ -87,12 +91,13 @@ func NewModel(shells []shell.Shell, registry *widget.Registry) *model {
 		s[i] = trackedShell{shell, uint64(i)}
 	}
 	m := &model{
-		shells:        s,
-		nextShellID:   uint64(len(shells)),
-		layout:        layout,
-		registry:      registry,
-		captureWidget: nil,
-		history:       &history.History{},
+		shells:         s,
+		nextShellID:    uint64(len(shells)),
+		layout:         layout,
+		registry:       registry,
+		commandWidgets: make(map[shell.Command]*commandGroup),
+		captureWidget:  nil,
+		history:        &history.History{},
 	}
 	if registry != nil {
 		for _, sh := range s {
@@ -121,7 +126,7 @@ func (m *model) addWidget(w *widget.Widget, msgs []tea.Msg) widget.Action {
 // AddChild appends a child model to the end of the widget list and the layout.
 // It returns the child's Init command.
 func (m *model) AddChild(child widget.Model) widget.Action {
-	w := &widget.Widget{child}
+	w := &widget.Widget{Model: child}
 	m.widgets = append(m.widgets, w)
 
 	return nil
@@ -153,19 +158,90 @@ func (m *model) AddShell(shell shell.Shell) tea.Cmd {
 	}
 }
 
+// RemoveChild is the single choke point for removing a widget. It notifies
+// the widget (so it can release goroutines and other resources), releases
+// keyboard capture if needed, and removes the widget from the widget list,
+// the command index and the layout.
 func (m *model) RemoveChild(w *widget.Widget) widget.Action {
 	if m.captureWidget == w {
 		m.captureWidget = nil
 	}
+	var remove widget.Action
+	if r, ok := w.Model.(widget.Teardownable); ok {
+		remove = r.Teardown()
+	}
 	for i, ww := range m.widgets {
 		if w == ww {
 			m.widgets = append(m.widgets[:i], m.widgets[i+1:]...)
+			break
 		}
 	}
-	// TODO: Should it be removed from the layout? Or are these two separate things?
-	// A widget should probably remove itself when it's hidden
-	// (TODO: being hidden/displayed should spawn a message to the widget? And then it removes itself... Do we want to make it that hard for widgets?)
-	return widget.Batch{m.layout.RemoveChild(w), m.recalculateSizes()}
+	for cmd, group := range m.commandWidgets {
+		for i, ww := range group.widgets {
+			if w == ww {
+				group.widgets = append(group.widgets[:i], group.widgets[i+1:]...)
+				break
+			}
+		}
+		if len(group.widgets) == 0 {
+			delete(m.commandWidgets, cmd)
+		}
+	}
+	return widget.Batch{m.layout.RemoveChild(w), m.recalculateSizes(), remove}
+}
+
+// spawnCommandGroup creates the per-command widget group via the registry,
+// indexes it and binds it to the command. It returns the widgets' init
+// actions.
+func (m *model) spawnCommandGroup(cmd shell.Command) widget.Action {
+	group := &commandGroup{seq: m.groupSeq}
+	m.groupSeq++
+	m.commandWidgets[cmd] = group
+	if m.registry == nil {
+		return nil
+	}
+	var addCmds widget.Batch
+	for _, cw := range m.registry.CreateForCommand(cmd) {
+		w := &widget.Widget{Model: cw}
+		group.widgets = append(group.widgets, w)
+		addCmds = append(addCmds, m.addWidget(w, []tea.Msg{shell.CommandMsg{Cmd: cmd}}))
+	}
+	return addCmds
+}
+
+// commandForWidget finds the command and group a widget belongs to.
+func (m *model) commandForWidget(w *widget.Widget) (shell.Command, *commandGroup, bool) {
+	for cmd, group := range m.commandWidgets {
+		for _, ww := range group.widgets {
+			if w == ww {
+				return cmd, group, true
+			}
+		}
+	}
+	return nil, nil, false
+}
+
+// removeOtherCommandGroups tears down all command groups of the shell that
+// were spawned before cmd's group, once cmd's group displays itself for the
+// first time. It is the lazy counterpart of D1: old output stays visible
+// until there is genuinely new output to show.
+func (m *model) removeOtherCommandGroups(cmd shell.Command) widget.Action {
+	own, ok := m.commandWidgets[cmd]
+	if !ok {
+		return nil
+	}
+	var stale []*widget.Widget
+	for otherCmd, group := range m.commandWidgets {
+		if otherCmd == cmd || group.seq >= own.seq || otherCmd.Shell() != cmd.Shell() {
+			continue
+		}
+		stale = append(stale, group.widgets...)
+	}
+	var actions widget.Batch
+	for _, w := range stale {
+		actions = append(actions, m.RemoveChild(w))
+	}
+	return actions
 }
 
 func (m *model) Init() tea.Cmd {
@@ -176,7 +252,7 @@ func (m *model) Init() tea.Cmd {
 		shellCmds = append(shellCmds,
 			func() tea.Msg {
 				shell.Wait()
-				return removeShellMsg{shell}
+				return removeShellMsg{shell.Shell}
 			})
 	}
 
@@ -308,6 +384,30 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tiling.DisplaySelfMsg:
+		// Lazy group replacement: the first display of a command group
+		// tears down the older command groups of the same shell, so old
+		// output stays visible until there is genuinely new output.
+		if command, group, ok := m.commandForWidget(msg.Widget); ok && !group.displayed {
+			group.displayed = true
+			cmd = tea.Batch(cmd, m.update(m.removeOtherCommandGroups(command)))
+		}
+		break // proceed with normal dispatch, which adds the widget to the layout
+
+	case removeShellMsg:
+		var stale []*widget.Widget
+		for command, group := range m.commandWidgets {
+			if command.Shell() != msg.s {
+				continue
+			}
+			stale = append(stale, group.widgets...)
+		}
+		var actions widget.Batch
+		for _, w := range stale {
+			actions = append(actions, m.RemoveChild(w))
+		}
+		return m, m.update(actions)
+
 	case releaseCaptureMsg:
 		m.captureWidget = nil
 		return m, nil
@@ -365,10 +465,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.history.Add(cmd)
 
-		var addCmds widget.Batch
-		for _, cw := range m.registry.CreateForCommand(cmd) {
-			addCmds = append(addCmds, m.addWidget(&widget.Widget{Model: cw}, []tea.Msg{shell.CommandMsg{Cmd: cmd}}))
-		}
+		addCmds := m.spawnCommandGroup(cmd)
 
 		log.Print("Running command")
 		return m, tea.Sequence(

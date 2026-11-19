@@ -21,6 +21,7 @@ type fakeCommand struct {
 
 func (f *fakeCommand) Run()                          {}
 func (f *fakeCommand) Resize(_ *pty.Winsize) error   { return nil }
+func (f *fakeCommand) Shell() shell.Shell            { return S[0] }
 func (f *fakeCommand) CommandLine() string           { return f.commandLine }
 func (f *fakeCommand) Wait()                         {}
 func (f *fakeCommand) Stdin() io.Writer              { return io.Discard }
@@ -326,4 +327,58 @@ func TestStdoutViewerInteractiveModeRequiresRunning(t *testing.T) {
 	h = result2.(*StdoutViewer)
 	assert.False(t, h.interactiveMode, "should NOT enter interactive mode when not running")
 	assert.Nil(t, cmd2, "should NOT return RequestCapture when not running")
+}
+
+func TestViewerRebindsOnEveryCommandMsg(t *testing.T) {
+	cmd1 := newFakeCmd("one", "1\n")
+	cmd2 := newFakeCmd("two", "2\n")
+
+	for _, h := range []*StdoutViewer{NewStdoutViewer(cmd1), newStdoutViewer()} {
+		_, _ = h.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		result, action := h.Update(shell.CommandMsg{Cmd: cmd2})
+		assert.Equal(t, "two", result.(*StdoutViewer).command.CommandLine())
+		assert.NotNil(t, action, "CommandMsg should release capture")
+	}
+}
+
+func TestCommandViewerDisplaysOnFirstOutput(t *testing.T) {
+	cmd := newFakeCmd("ls", "file.txt\n")
+	h := NewStdoutViewer(cmd)
+	_, _ = h.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	_, action := h.Update(shell.StdoutMsg{Cmd: cmd})
+	assert.NotNil(t, action, "first output should trigger DisplaySelf")
+	assert.True(t, h.displayed)
+
+	_, action2 := h.Update(shell.StdoutMsg{Cmd: cmd})
+	assert.Nil(t, action2, "no repeated DisplaySelf once displayed")
+}
+
+func TestCommandViewerHidesOnNonColorEscape(t *testing.T) {
+	cmd := newFakeCmd("vim", "")
+	h := NewStdoutViewer(cmd)
+	_, _ = h.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	cmd.(*fakeCommand).stdout = "\x1b[?1049h"
+	_, action := h.Update(shell.StdoutMsg{Cmd: cmd})
+	assert.NotNil(t, action, "escape sequences should trigger HideSelf")
+	assert.True(t, h.hidden)
+	assert.False(t, h.displayed, "an interactive command must never display")
+
+	// Hidden viewers keep accumulating content but produce no visibility actions.
+	cmd.(*fakeCommand).stdout = "\x1b[?1049hmore"
+	_, action2 := h.Update(shell.StdoutMsg{Cmd: cmd})
+	assert.Nil(t, action2)
+	assert.Contains(t, h.view.View(), "more")
+}
+
+func TestViewerHidesOnEscapeRegardlessOfConstructor(t *testing.T) {
+	cmd := newFakeCmd("vim", "")
+	h := newStdoutViewer()
+	_, _ = h.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_, _ = h.Update(shell.CommandMsg{Cmd: cmd})
+
+	cmd.(*fakeCommand).stdout = "\x1b[?1049h"
+	h2 := updateStdoutViewer(t, h, shell.StdoutMsg{Cmd: cmd})
+	assert.True(t, h2.hidden, "all viewers hide on non-color escapes")
 }

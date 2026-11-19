@@ -37,6 +37,7 @@ type Shell interface {
 type Command interface {
 	Run()
 	CommandLine() string
+	Shell() Shell
 	Wait()
 	Stdin() io.Writer
 	Stdout() string

@@ -26,7 +26,7 @@ type MockShell struct{}
 var S = []shell.Shell{&MockShell{}}
 
 func (m *MockShell) Command(cmd string, size *pty.Winsize) (shell.Command, error) {
-	return &MockCommand{}, nil
+	return &MockCommand{shell: m}, nil
 }
 
 func (m *MockShell) Run(cmd string, ptmx, tty, stderr *os.File) error           { return nil }
@@ -37,9 +37,11 @@ func (m *MockShell) Dir() string                                                
 func (m *MockShell) Wait()                                                      { time.Sleep(time.Millisecond) }
 
 type MockCommand struct {
+	shell shell.Shell
 	state shell.CommandState
 }
 
+func (m *MockCommand) Shell() shell.Shell            { return m.shell }
 func (m *MockCommand) Run()                          {}
 func (m *MockCommand) Resize(_ *pty.Winsize) error   { return nil }
 func (m *MockCommand) CommandLine() string           { return "" }
@@ -95,14 +97,17 @@ func quitSoon() tea.Cmd {
 }
 
 type removableModel struct {
-	width  int
-	height int
-	label  string
+	width   int
+	height  int
+	label   string
+	removed bool
 }
 
 func newRemovable(label string) *removableModel {
 	return &removableModel{label: label}
 }
+
+func (m *removableModel) Teardown() widget.Action { m.removed = true; return nil }
 
 func (m *removableModel) Name() string { return "TEST Removable Model" }
 
@@ -113,8 +118,6 @@ func (m *removableModel) Update(msg tea.Msg) (widget.Model, widget.Action) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-	case triggerRemoveMsg:
-		return m, RemoveSelfMsg{}
 	}
 	return m, nil
 }
@@ -128,8 +131,6 @@ func (m *removableModel) View() tea.View {
 		Align(lipgloss.Center, lipgloss.Center).
 		Render(m.label))
 }
-
-type triggerRemoveMsg struct{}
 
 func TestChildSelfRemove(t *testing.T) {
 	reg := widget.NewRegistry()
@@ -147,10 +148,14 @@ func TestChildSelfRemove(t *testing.T) {
 	m2.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	require.Equal(t, 3, len(m.widgets))
+	b := m.widgets[1].Model.(*removableModel)
 	m.Update(removeWidgetMsg{w: m.widgets[1]})
 
 	if len(m.widgets) != 2 {
 		t.Fatalf("expected 2 children after removal, got %d", len(m.widgets))
+	}
+	if !b.removed {
+		t.Errorf("expected Teardown() to be called on the removed widget")
 	}
 
 	assert.Equal(t, m2.View().Content, m.View().Content)
@@ -355,4 +360,112 @@ func TestTeaAddAndRemoveBlock(t *testing.T) {
 	if len(model.widgets) != 1 {
 		t.Fatalf("expected 1 widgets after add+remove, got %d", len(model.widgets))
 	}
+}
+
+// displayOnStdout is a minimal per-command widget: it displays itself only
+// on the first StdoutMsg of its own command, and records Teardown() calls.
+type displayOnStdout struct {
+	command   shell.Command
+	displayed bool
+	removed   bool
+}
+
+func (m *displayOnStdout) Name() string            { return "TEST display-on-stdout" }
+func (m *displayOnStdout) Init() widget.Action     { return nil }
+func (m *displayOnStdout) Teardown() widget.Action { m.removed = true; return nil }
+
+func (m *displayOnStdout) Update(msg tea.Msg) (widget.Model, widget.Action) {
+	if smsg, ok := msg.(shell.StdoutMsg); ok && smsg.Cmd == m.command && !m.displayed {
+		m.displayed = true
+		return m, tiling.DisplaySelf(100)
+	}
+	return m, nil
+}
+
+func (m *displayOnStdout) View() tea.View { return tea.NewView("display") }
+
+func displayRegistry(constructions *[]*displayOnStdout) *widget.Registry {
+	reg := widget.NewRegistry()
+	reg.RegisterCommand(func(cmd shell.Command) widget.Model {
+		w := &displayOnStdout{command: cmd}
+		*constructions = append(*constructions, w)
+		return w
+	})
+	return reg
+}
+
+func TestFirstDisplayTearsDownOldCommandGroup(t *testing.T) {
+	var built []*displayOnStdout
+	m := NewModel(S, displayRegistry(&built))
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.Update(CommandEnteredMsg{Text: "first"})
+	require.Len(t, m.widgets, 1)
+	require.Len(t, m.commandWidgets, 1)
+
+	m.Update(CommandEnteredMsg{Text: "second"})
+	require.Len(t, m.widgets, 2)
+	require.Len(t, m.commandWidgets, 2)
+
+	// The new group has not displayed yet: the old group survives (lazy,
+	// scrollback-like behavior).
+	m.Update(shell.StdoutMsg{Cmd: built[0].command})
+	require.Len(t, m.widgets, 2)
+
+	// First display of the new group tears down the old one.
+	m.Update(shell.StdoutMsg{Cmd: built[1].command})
+	require.Len(t, m.widgets, 1)
+	require.Len(t, m.commandWidgets, 1)
+	assert.True(t, built[0].removed, "old widget must be notified via Teardown()")
+	assert.False(t, built[1].removed)
+}
+
+func TestSilentCommandKeepsOldGroup(t *testing.T) {
+	var built []*displayOnStdout
+	m := NewModel(S, displayRegistry(&built))
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.Update(CommandEnteredMsg{Text: "first"})
+	m.Update(shell.StdoutMsg{Cmd: built[0].command})
+	m.Update(CommandEnteredMsg{Text: "silent"})
+	m.Update(shell.CommandDoneMsg{Cmd: built[1].command})
+
+	// The silent command never displayed: the old group stays visible.
+	require.Len(t, m.widgets, 2)
+	require.Len(t, m.commandWidgets, 2)
+	assert.False(t, built[0].removed)
+}
+
+func TestRemoveGroupReleasesCapture(t *testing.T) {
+	var built []*displayOnStdout
+	m := NewModel(S, displayRegistry(&built))
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.Update(CommandEnteredMsg{Text: "first"})
+	m.Update(shell.StdoutMsg{Cmd: built[0].command})
+	m.Update(CommandEnteredMsg{Text: "second"})
+
+	m.captureWidget = m.widgets[0]
+	m.Update(shell.StdoutMsg{Cmd: built[1].command})
+
+	assert.Nil(t, m.captureWidget, "teardown must release keyboard capture")
+	require.Len(t, m.commandWidgets, 1)
+}
+
+func TestRemoveShellCleansUpCommandGroups(t *testing.T) {
+	var built []*displayOnStdout
+	reg := displayRegistry(&built)
+	reg.RegisterGlobal(func(s shell.Shell) widget.Model { return newBlock("G", "5") })
+
+	m := NewModel(S, reg)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.Update(CommandEnteredMsg{Text: "one"})
+	m.Update(CommandEnteredMsg{Text: "two"})
+	require.Len(t, m.commandWidgets, 2)
+
+	m.Update(removeShellMsg{s: S[0]})
+	assert.Empty(t, m.commandWidgets)
+	assert.Len(t, m.widgets, 1) // only the global widget spawned for the shell survives
+	assert.True(t, built[0].removed)
+	assert.True(t, built[1].removed)
 }
